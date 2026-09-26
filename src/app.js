@@ -138,6 +138,46 @@ function fmtBuildTime(at) {
   const x=new Date(at);
   return `${String(x.getMonth()+1).padStart(2,"0")}.${String(x.getDate()).padStart(2,"0")} ${String(x.getHours()).padStart(2,"0")}:${String(x.getMinutes()).padStart(2,"0")}`;
 }
+function durationMinutes(item) {
+  const value = Number(item.duration);
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+function fmtDuration(minutes) {
+  if (!minutes) return "0 分钟";
+  const hours = Math.floor(minutes / 60), rest = minutes % 60;
+  return hours ? `${hours} 小时${rest ? ` ${rest} 分钟` : ""}` : `${rest} 分钟`;
+}
+function durationChart(items, range) {
+  const now = new Date();
+  let labels = [], keys = [];
+  if (range === "day") {
+    keys = Array.from({length:24}, (_,i)=>i);
+    labels = keys.map(i=>`${i}时`);
+  } else if (range === "week") {
+    keys = Array.from({length:7}, (_,i)=>i);
+    labels = ["周一","周二","周三","周四","周五","周六","周日"];
+  } else if (range === "month") {
+    keys = Array.from({length:new Date(now.getFullYear(),now.getMonth()+1,0).getDate()},(_,i)=>i+1);
+    labels = keys.map(i=>`${i}日`);
+  } else {
+    keys = Array.from({length:12}, (_,i)=>i);
+    labels = keys.map(i=>`${i+1}月`);
+  }
+  const values = keys.map(()=>0);
+  for (const item of items) {
+    const date = new Date(item.at);
+    if (Number.isNaN(date.getTime())) continue;
+    const key = range === "day" ? date.getHours() : range === "week" ? (date.getDay()+6)%7 : range === "month" ? date.getDate() : date.getMonth();
+    values[keys.indexOf(key)] += durationMinutes(item);
+  }
+  const max = Math.max(...values, 1);
+  return `<div class="duration-chart" role="img" aria-label="${range === "day" ? "今日每小时" : range === "week" ? "本周每日" : range === "month" ? "本月每日" : "今年每月"}记录时长：${values.reduce((sum,v)=>sum+v,0)} 分钟">
+    <div class="chart-heading"><strong>投入时间</strong><span>单位：分钟 · 按记录的开始时间统计</span></div>
+    <div class="chart-scroll"><div class="chart-bars ${range === "month" ? "chart-month" : ""} ${range === "week" ? "chart-week" : ""}">
+      ${values.map((value,i)=>`<div class="chart-column" title="${labels[i]}：${fmtDuration(value)}"><span class="chart-value">${value || ""}</span><div class="chart-track"><div class="chart-fill" style="height:${value ? Math.max(4, value/max*100) : 0}%"></div></div><span class="chart-label">${labels[i]}</span></div>`).join("")}
+    </div></div>
+  </div>`;
+}
 function renderBuild() {
   const filtered = buildItems.filter(x=>inRange(x, statsRange)).sort((a,b)=>new Date(b.at)-new Date(a.at));
   const byDate = {};
@@ -145,6 +185,7 @@ function renderBuild() {
     const key = x.at.slice(0,10);
     (byDate[key] ||= []).push(x);
   }
+  const totalMinutes = filtered.reduce((sum,x)=>sum+durationMinutes(x),0);
   document.querySelector("#app").innerHTML = `
     <main class="shell">
       <header class="topbar">
@@ -159,12 +200,13 @@ function renderBuild() {
         <div>
           <div class="brand-kicker">BUILD LOG</div>
           <h2>把做过的事，留下来。</h2>
-          <p>记录内容、日期和时间。先捕捉，再统计。</p>
+          <p>记录做了什么、开始时间和投入时长。</p>
         </div>
         <form class="capture" id="buildForm">
           <div class="capture-main">
             <input name="content" autocomplete="off" placeholder="刚刚做了什么？" required />
             <input name="at" type="datetime-local" value="${nowLocalInput()}" required />
+            <input name="duration" type="number" inputmode="numeric" min="1" max="1440" step="1" placeholder="时长（分钟）" aria-label="时长（分钟）" required />
           </div>
           <button class="btn primary">记录</button>
         </form>
@@ -183,8 +225,9 @@ function renderBuild() {
         <div class="stat-cards">
           <div class="stat-card"><span>记录数</span><strong>${filtered.length}</strong></div>
           <div class="stat-card"><span>活跃天数</span><strong>${Object.keys(byDate).length}</strong></div>
-          <div class="stat-card"><span>全部累计</span><strong>${buildItems.length}</strong></div>
+          <div class="stat-card"><span>投入时长</span><strong>${fmtDuration(totalMinutes)}</strong></div>
         </div>
+        ${durationChart(filtered, statsRange)}
       </section>
 
       <section class="build-list">
@@ -192,7 +235,7 @@ function renderBuild() {
           <article class="build-item">
             <div>
               <div class="build-content">${escapeHtml(x.content)}</div>
-              <div class="build-time">${fmtBuildTime(x.at)}</div>
+              <div class="build-time">${fmtBuildTime(x.at)}${durationMinutes(x) ? ` · ${fmtDuration(durationMinutes(x))}` : " · 未记录时长"}</div>
             </div>
             <button class="edit" data-delete-build="${x.id}">删除</button>
           </article>
@@ -204,7 +247,7 @@ function renderBuild() {
   document.querySelector("#buildForm").onsubmit=(e)=>{
     e.preventDefault();
     const fd=new FormData(e.currentTarget);
-    buildItems.unshift({id:id(), content:fd.get("content").trim(), at:fd.get("at")});
+    buildItems.unshift({id:id(), content:fd.get("content").trim(), at:fd.get("at"), duration:Number(fd.get("duration"))});
     saveBuild(buildItems); renderBuild();
   };
   document.querySelectorAll("[data-range]").forEach(el=>el.onclick=()=>{statsRange=el.dataset.range; renderBuild();});
