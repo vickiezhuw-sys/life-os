@@ -1,5 +1,6 @@
 import "./style.css";
 import baseline from "./baseline-data.json";
+import currentWeekPlan from "./current-week-data.json";
 
 const MODULES = [
   ["Health OS", "身体重建"],
@@ -26,8 +27,12 @@ function saveBuild(items) {
   localStorage.setItem(BUILD_KEY, JSON.stringify(items));
 }
 let buildItems = loadBuild();
-const BASE_WEEK_START = "2026-09-07";
-const todayISO = "2026-09-09"; // v1 baseline snapshot
+const PLAN_WEEK_START = "2026-09-21";
+function currentWeekStart() {
+  const today = new Date();
+  today.setDate(today.getDate() - (today.getDay()+6)%7);
+  return iso(today);
+}
 
 function id() {
   return (crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`);
@@ -35,12 +40,26 @@ function id() {
 function seed() {
   return baseline.map(t => ({...t, id:id(), done:false}));
 }
+function addCurrentPlan(state) {
+  if (currentWeekStart() !== PLAN_WEEK_START || state.weeklyPlanVersion === PLAN_WEEK_START) return state;
+  const existing = new Set(state.tasks.map(t=>`${t.date}|${t.title}`));
+  for (const task of currentWeekPlan) {
+    if (!existing.has(`${task.date}|${task.title}`)) state.tasks.push({...task,id:id(),done:false});
+  }
+  state.weeklyPlanVersion = PLAN_WEEK_START;
+  return state;
+}
 function load() {
   try {
     const v = JSON.parse(localStorage.getItem(STORE_KEY));
-    if (v && Array.isArray(v.tasks)) return v;
+    if (v && Array.isArray(v.tasks)) {
+      v.weekStart = currentWeekStart();
+      addCurrentPlan(v);
+      save(v);
+      return v;
+    }
   } catch {}
-  const v = { weekStart: BASE_WEEK_START, tasks: seed() };
+  const v = addCurrentPlan({ weekStart: currentWeekStart(), tasks: seed() });
   save(v);
   return v;
 }
@@ -56,7 +75,7 @@ function iso(date) {
 function addDays(isoDate, n) {
   const x=d(isoDate); x.setDate(x.getDate()+n); return iso(x);
 }
-function weekDates(start) { return [2,3,4,5,6].map(x=>addDays(start,x)); } // Wed-Sun baseline
+function weekDates(start) { return [0,1,2,3,4,5,6].map(x=>addDays(start,x)); }
 function fmtRange(start) {
   const end=addDays(start,6), a=d(start), b=d(end);
   return `${String(a.getMonth()+1).padStart(2,"0")}.${String(a.getDate()).padStart(2,"0")} — ${String(b.getMonth()+1).padStart(2,"0")}.${String(b.getDate()).padStart(2,"0")}`;
@@ -292,6 +311,8 @@ function renderBuild() {
 }
 
 function render() {
+  const todayISO = iso(new Date());
+  const isCurrentWeek = state.weekStart === currentWeekStart();
   const dates=weekDates(state.weekStart);
   const visible=state.tasks.filter(t=>dates.includes(t.date));
   const done=visible.filter(t=>t.done).length;
@@ -334,15 +355,15 @@ function render() {
 
       <section class="priority">
         <strong>这周最重要的两件事</strong>
-        <span>出去体验一次 · 把负债盘清楚</span>
+        <span>${state.weekStart === PLAN_WEEK_START ? "好好体验旅程 · 留下实际记录" : "选定一件重要的事 · 留一次周复盘"}</span>
         <span class="muted">一步一步，把生活过好</span>
       </section>
 
       <section class="planner">
         <div class="planner-head">
           <div class="planner-title">
-            <h3>本周计划　${fmtRange(state.weekStart)}</h3>
-            <p>从今天到周末，专注眼前这一件事。 · ${visible.filter(t=>!t.done).length} 项待完成</p>
+            <h3>${isCurrentWeek ? "本周计划" : "周计划"}　${fmtRange(state.weekStart)}</h3>
+            <p>每次做好眼前这一件事。 · ${visible.filter(t=>!t.done).length} 项待完成</p>
           </div>
           <div class="actions">
             <button class="btn primary" id="addTop">新增任务</button>
@@ -386,7 +407,7 @@ function render() {
   document.querySelector("#addTop").onclick=()=>openEditor({}, dates[0]);
   document.querySelector("#prevWeek").onclick=()=>{state.weekStart=addDays(state.weekStart,-7); save(state); render();};
   document.querySelector("#nextWeek").onclick=()=>{state.weekStart=addDays(state.weekStart,7); save(state); render();};
-  document.querySelector("#thisWeek").onclick=()=>{state.weekStart=BASE_WEEK_START; save(state); render();};
+  document.querySelector("#thisWeek").onclick=()=>{state.weekStart=currentWeekStart(); addCurrentPlan(state); save(state); render();};
   document.querySelector("#toBuild").onclick=()=>{currentView="build"; renderBuild();};
 }
 render();

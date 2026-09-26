@@ -153,6 +153,7 @@ h1 { margin:4px 0 0; font-size:28px; line-height:1.15; font-weight:680; }
     <div id="app"></div>
     <script>
 const baseline = [{"date": "2026-09-09", "module": "Health OS", "title": "完成本周第 1 次运动", "note": "如果今天已运动，直接勾选；无需晚上补练。"}, {"date": "2026-09-09", "module": "Inner OS", "title": "收好工作，给今晚留一点空间", "note": "处理手头待办；关系正常相处，愿意聊时再聊。"}, {"date": "2026-09-09", "module": "Health OS", "title": "正常晚餐，睡前做一次小记录", "note": "记录饮食、酒 / 夜宵和身体感受，尽量早点睡。"}, {"date": "2026-09-10", "module": "Health OS", "title": "晨起称重，记录第一个数字", "note": "上厕所后、早餐前称重；填在任务备注里即可。"}, {"date": "2026-09-10", "module": "Wealth OS", "title": "用 30 分钟收集全部负债", "note": "剩余本金、利率、月供、到期日、提前还款条件；先收集。"}, {"date": "2026-09-10", "module": "Health OS", "title": "给身体一个恢复日", "note": "正常饮食；状态允许就散步 30 分钟，腿酸可休息。"}, {"date": "2026-09-11", "module": "Career OS", "title": "把工作收口，给周末腾空间", "note": "处理会让你周末挂心的工作。"}, {"date": "2026-09-11", "module": "Health OS", "title": "完成本周第 2 次运动", "note": "30–45 分钟，打球也算；聚餐适量，避免连续加餐。"}, {"date": "2026-09-11", "module": "Experience OS", "title": "选定周末的一件新体验", "note": "打球、自驾、徒步或骑车，定一个就好。"}, {"date": "2026-09-12", "module": "Experience OS", "title": "留半天，真正走到户外", "note": "去完成选好的体验，给日常换一个场景。"}, {"date": "2026-09-12", "module": "Experience OS", "title": "拍几张照片，留下第一组 Life Log", "note": "不要求发布，留下你正在生活的记录。"}, {"date": "2026-09-12", "module": "Inner OS", "title": "留一段不带任务的自由时间", "note": "休息或打游戏都可以，不把周末变成培训班。"}, {"date": "2026-09-13", "module": "Health OS", "title": "完成本周第 3 次运动或轻恢复", "note": "如果周六运动量大，今天改为散步或轻运动。"}, {"date": "2026-09-13", "module": "Wealth OS", "title": "整理债务，测算清零日期", "note": "核对完整数据与可还款金额，准备确定 Debt Freedom Date。"}, {"date": "2026-09-13", "module": "Career OS", "title": "选定第一个 100 天 AI 项目", "note": "花 30–60 分钟明确方向和第一步，不要求做完项目。"}, {"date": "2026-09-13", "module": "Inner OS", "title": "用 15 分钟做周复盘", "note": "看体重、运动、酒 / 夜宵、新体验和情绪；写下周最重要的 3 件事。"}];
+const currentWeekPlan = [{"date": "2026-09-26", "module": "Experience OS", "title": "留下今天的旅行记录", "note": "记下去过的地方、一个喜欢的瞬间和一张照片。"}, {"date": "2026-09-26", "module": "Health OS", "title": "旅途中照顾身体", "note": "正常吃饭、补水；安排好今晚的休息。"}, {"date": "2026-09-26", "module": "Inner OS", "title": "睡前写三句话", "note": "今天做了什么、感觉如何、明天想留意什么。"}, {"date": "2026-09-27", "module": "Experience OS", "title": "确认下一段行程与交通", "note": "核对出发时间和路线，给转场留出余量。"}, {"date": "2026-09-27", "module": "Inner OS", "title": "用 15 分钟做本周复盘", "note": "回顾旅行、身体状态和 Life OS 记录，写下下周三件要紧的事。"}];
 
 const MODULES = [
   ["Health OS", "身体重建"],
@@ -179,8 +180,12 @@ function saveBuild(items) {
   localStorage.setItem(BUILD_KEY, JSON.stringify(items));
 }
 let buildItems = loadBuild();
-const BASE_WEEK_START = "2026-09-07";
-const todayISO = "2026-09-09"; // v1 baseline snapshot
+const PLAN_WEEK_START = "2026-09-21";
+function currentWeekStart() {
+  const today = new Date();
+  today.setDate(today.getDate() - (today.getDay()+6)%7);
+  return iso(today);
+}
 
 function id() {
   return (crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`);
@@ -188,12 +193,26 @@ function id() {
 function seed() {
   return baseline.map(t => ({...t, id:id(), done:false}));
 }
+function addCurrentPlan(state) {
+  if (currentWeekStart() !== PLAN_WEEK_START || state.weeklyPlanVersion === PLAN_WEEK_START) return state;
+  const existing = new Set(state.tasks.map(t=>`${t.date}|${t.title}`));
+  for (const task of currentWeekPlan) {
+    if (!existing.has(`${task.date}|${task.title}`)) state.tasks.push({...task,id:id(),done:false});
+  }
+  state.weeklyPlanVersion = PLAN_WEEK_START;
+  return state;
+}
 function load() {
   try {
     const v = JSON.parse(localStorage.getItem(STORE_KEY));
-    if (v && Array.isArray(v.tasks)) return v;
+    if (v && Array.isArray(v.tasks)) {
+      v.weekStart = currentWeekStart();
+      addCurrentPlan(v);
+      save(v);
+      return v;
+    }
   } catch {}
-  const v = { weekStart: BASE_WEEK_START, tasks: seed() };
+  const v = addCurrentPlan({ weekStart: currentWeekStart(), tasks: seed() });
   save(v);
   return v;
 }
@@ -209,7 +228,7 @@ function iso(date) {
 function addDays(isoDate, n) {
   const x=d(isoDate); x.setDate(x.getDate()+n); return iso(x);
 }
-function weekDates(start) { return [2,3,4,5,6].map(x=>addDays(start,x)); } // Wed-Sun baseline
+function weekDates(start) { return [0,1,2,3,4,5,6].map(x=>addDays(start,x)); }
 function fmtRange(start) {
   const end=addDays(start,6), a=d(start), b=d(end);
   return `${String(a.getMonth()+1).padStart(2,"0")}.${String(a.getDate()).padStart(2,"0")} — ${String(b.getMonth()+1).padStart(2,"0")}.${String(b.getDate()).padStart(2,"0")}`;
@@ -445,6 +464,8 @@ function renderBuild() {
 }
 
 function render() {
+  const todayISO = iso(new Date());
+  const isCurrentWeek = state.weekStart === currentWeekStart();
   const dates=weekDates(state.weekStart);
   const visible=state.tasks.filter(t=>dates.includes(t.date));
   const done=visible.filter(t=>t.done).length;
@@ -487,15 +508,15 @@ function render() {
 
       <section class="priority">
         <strong>这周最重要的两件事</strong>
-        <span>出去体验一次 · 把负债盘清楚</span>
+        <span>${state.weekStart === PLAN_WEEK_START ? "好好体验旅程 · 留下实际记录" : "选定一件重要的事 · 留一次周复盘"}</span>
         <span class="muted">一步一步，把生活过好</span>
       </section>
 
       <section class="planner">
         <div class="planner-head">
           <div class="planner-title">
-            <h3>本周计划　${fmtRange(state.weekStart)}</h3>
-            <p>从今天到周末，专注眼前这一件事。 · ${visible.filter(t=>!t.done).length} 项待完成</p>
+            <h3>${isCurrentWeek ? "本周计划" : "周计划"}　${fmtRange(state.weekStart)}</h3>
+            <p>每次做好眼前这一件事。 · ${visible.filter(t=>!t.done).length} 项待完成</p>
           </div>
           <div class="actions">
             <button class="btn primary" id="addTop">新增任务</button>
@@ -539,7 +560,7 @@ function render() {
   document.querySelector("#addTop").onclick=()=>openEditor({}, dates[0]);
   document.querySelector("#prevWeek").onclick=()=>{state.weekStart=addDays(state.weekStart,-7); save(state); render();};
   document.querySelector("#nextWeek").onclick=()=>{state.weekStart=addDays(state.weekStart,7); save(state); render();};
-  document.querySelector("#thisWeek").onclick=()=>{state.weekStart=BASE_WEEK_START; save(state); render();};
+  document.querySelector("#thisWeek").onclick=()=>{state.weekStart=currentWeekStart(); addCurrentPlan(state); save(state); render();};
   document.querySelector("#toBuild").onclick=()=>{currentView="build"; renderBuild();};
 }
 render();
