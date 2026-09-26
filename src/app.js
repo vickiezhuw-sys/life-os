@@ -1,6 +1,7 @@
 import "./style.css";
 import baseline from "./baseline-data.json";
 import currentWeekPlan from "./current-week-data.json";
+import sepOctPlan from "./sep-oct-plan.json";
 
 const MODULES = [
   ["Health OS", "身体重建"],
@@ -28,6 +29,7 @@ function saveBuild(items) {
 }
 let buildItems = loadBuild();
 const PLAN_WEEK_START = "2026-09-21";
+const MONTH_PLAN_VERSION = "2026-09-26-october-v1";
 function currentWeekStart() {
   const today = new Date();
   today.setDate(today.getDate() - (today.getDay()+6)%7);
@@ -49,17 +51,27 @@ function addCurrentPlan(state) {
   state.weeklyPlanVersion = PLAN_WEEK_START;
   return state;
 }
+function addMonthlyPlan(state) {
+  if (state.monthlyPlanVersion === MONTH_PLAN_VERSION || iso(new Date()) > "2026-10-31") return state;
+  const existing = new Set(state.tasks.map(t=>`${t.date}|${t.title}`));
+  for (const task of sepOctPlan) {
+    if (!existing.has(`${task.date}|${task.title}`)) state.tasks.push({...task,id:id(),done:false});
+  }
+  state.monthlyPlanVersion = MONTH_PLAN_VERSION;
+  return state;
+}
 function load() {
   try {
     const v = JSON.parse(localStorage.getItem(STORE_KEY));
     if (v && Array.isArray(v.tasks)) {
       v.weekStart = currentWeekStart();
       addCurrentPlan(v);
+      addMonthlyPlan(v);
       save(v);
       return v;
     }
   } catch {}
-  const v = addCurrentPlan({ weekStart: currentWeekStart(), tasks: seed() });
+  const v = addMonthlyPlan(addCurrentPlan({ weekStart: currentWeekStart(), tasks: seed() }));
   save(v);
   return v;
 }
@@ -355,7 +367,7 @@ function render() {
 
       <section class="priority">
         <strong>这周最重要的两件事</strong>
-        <span>${state.weekStart === PLAN_WEEK_START ? "好好体验旅程 · 留下实际记录" : "选定一件重要的事 · 留一次周复盘"}</span>
+        <span>${({"2026-09-21":"好好体验旅程 · 留下实际记录","2026-09-28":"享受旅程 · 平稳返程","2026-10-05":"完成离职收尾 · 简历起步","2026-10-12":"简历成稿 · AI 数据练习","2026-10-19":"岗位投递 · 项目小样","2026-10-26":"复盘求职 · 规划十一月"})[state.weekStart] || "选定一件重要的事 · 留一次周复盘"}</span>
         <span class="muted">一步一步，把生活过好</span>
       </section>
 
