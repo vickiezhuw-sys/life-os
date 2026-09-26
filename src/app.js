@@ -13,6 +13,7 @@ const STORE_KEY = "life-os-weekly-planner-v1";
 const BUILD_KEY = "life-os-build-v1";
 let currentView = "planner";
 let statsRange = "day";
+let statsModule = "all";
 
 function loadBuild() {
   try {
@@ -147,6 +148,32 @@ function fmtDuration(minutes) {
   const hours = Math.floor(minutes / 60), rest = minutes % 60;
   return hours ? `${hours} 小时${rest ? ` ${rest} 分钟` : ""}` : `${rest} 分钟`;
 }
+function moduleOptions(selected = "") {
+  return `<option value="" ${!selected ? "selected" : ""} disabled>选择 OS 分类</option>` +
+    MODULES.map(([name])=>`<option value="${name}" ${selected===name ? "selected" : ""}>${name}</option>`).join("");
+}
+function editBuild(item) {
+  const modal = document.createElement("div");
+  modal.className = "modal-backdrop";
+  modal.innerHTML = `<form class="modal" id="editBuildForm">
+    <h4>编辑记录</h4>
+    <div class="field"><label for="editBuildContent">内容</label><input id="editBuildContent" name="content" required value="${escapeHtml(item.content)}" /></div>
+    <div class="field"><label for="editBuildAt">开始时间</label><input id="editBuildAt" name="at" type="datetime-local" required value="${escapeHtml(item.at)}" /></div>
+    <div class="field"><label for="editBuildDuration">时长（分钟）</label><input id="editBuildDuration" name="duration" type="number" inputmode="numeric" min="1" max="1440" step="1" value="${durationMinutes(item) || ""}" /></div>
+    <div class="field"><label for="editBuildModule">OS 分类</label><select id="editBuildModule" name="module" required>${moduleOptions(item.module)}</select></div>
+    <div class="modal-actions"><button type="button" class="btn" id="cancelBuildEdit">取消</button><button class="btn primary">保存</button></div>
+  </form>`;
+  document.body.append(modal);
+  modal.querySelector("#cancelBuildEdit").onclick=()=>modal.remove();
+  modal.onclick=e=>{if(e.target===modal) modal.remove();};
+  modal.querySelector("form").onsubmit=e=>{
+    e.preventDefault();
+    const fd=new FormData(e.currentTarget);
+    const updated={...item,content:fd.get("content").trim(),at:fd.get("at"),duration:fd.get("duration") ? Number(fd.get("duration")) : 0,module:fd.get("module")};
+    buildItems=buildItems.map(x=>x.id===item.id ? updated : x);
+    saveBuild(buildItems); modal.remove(); renderBuild();
+  };
+}
 function durationChart(items, range) {
   const now = new Date();
   let labels = [], keys = [];
@@ -179,7 +206,7 @@ function durationChart(items, range) {
   </div>`;
 }
 function renderBuild() {
-  const filtered = buildItems.filter(x=>inRange(x, statsRange)).sort((a,b)=>new Date(b.at)-new Date(a.at));
+  const filtered = buildItems.filter(x=>inRange(x, statsRange) && (statsModule === "all" || x.module === statsModule)).sort((a,b)=>new Date(b.at)-new Date(a.at));
   const byDate = {};
   for (const x of filtered) {
     const key = x.at.slice(0,10);
@@ -207,6 +234,7 @@ function renderBuild() {
             <input name="content" autocomplete="off" placeholder="刚刚做了什么？" required />
             <input name="at" type="datetime-local" value="${nowLocalInput()}" required />
             <input name="duration" type="number" inputmode="numeric" min="1" max="1440" step="1" placeholder="时长（分钟）" aria-label="时长（分钟）" required />
+            <select name="module" aria-label="OS 分类" required>${moduleOptions()}</select>
           </div>
           <button class="btn primary">记录</button>
         </form>
@@ -218,9 +246,12 @@ function renderBuild() {
             <div class="brand-kicker">STATISTICS</div>
             <h3>${filtered.length} 条记录</h3>
           </div>
-          <div class="range-tabs">
+          <div class="stats-filters"><label for="statsModule">分类</label><select id="statsModule" aria-label="筛选 OS 分类">
+            <option value="all">全部 OS</option>
+            ${MODULES.map(([name])=>`<option value="${name}" ${statsModule===name ? "selected" : ""}>${name}</option>`).join("")}
+          </select><div class="range-tabs">
             ${[["day","日"],["week","周"],["month","月"],["year","年"]].map(([k,l])=>`<button class="range-tab ${statsRange===k?"active":""}" data-range="${k}">${l}</button>`).join("")}
-          </div>
+          </div></div>
         </div>
         <div class="stat-cards">
           <div class="stat-card"><span>记录数</span><strong>${filtered.length}</strong></div>
@@ -236,8 +267,9 @@ function renderBuild() {
             <div>
               <div class="build-content">${escapeHtml(x.content)}</div>
               <div class="build-time">${fmtBuildTime(x.at)}${durationMinutes(x) ? ` · ${fmtDuration(durationMinutes(x))}` : " · 未记录时长"}</div>
+              <div class="build-category">${MODULES.some(([name])=>name===x.module) ? x.module : "未分类"}</div>
             </div>
-            <button class="edit" data-delete-build="${x.id}">删除</button>
+            <div class="build-actions"><button class="edit" data-edit-build="${x.id}">编辑</button><button class="edit" data-delete-build="${x.id}">删除</button></div>
           </article>
         `).join("") : `<div class="build-empty">这个时间范围还没有记录。先写下第一条。</div>`}
       </section>
@@ -247,10 +279,12 @@ function renderBuild() {
   document.querySelector("#buildForm").onsubmit=(e)=>{
     e.preventDefault();
     const fd=new FormData(e.currentTarget);
-    buildItems.unshift({id:id(), content:fd.get("content").trim(), at:fd.get("at"), duration:Number(fd.get("duration"))});
+    buildItems.unshift({id:id(), content:fd.get("content").trim(), at:fd.get("at"), duration:Number(fd.get("duration")), module:fd.get("module")});
     saveBuild(buildItems); renderBuild();
   };
   document.querySelectorAll("[data-range]").forEach(el=>el.onclick=()=>{statsRange=el.dataset.range; renderBuild();});
+  document.querySelector("#statsModule").onchange=e=>{statsModule=e.target.value; renderBuild();};
+  document.querySelectorAll("[data-edit-build]").forEach(el=>el.onclick=()=>editBuild(buildItems.find(x=>x.id===el.dataset.editBuild)));
   document.querySelectorAll("[data-delete-build]").forEach(el=>el.onclick=()=>{
     buildItems=buildItems.filter(x=>x.id!==el.dataset.deleteBuild);
     saveBuild(buildItems); renderBuild();
