@@ -40,3 +40,18 @@ npm run dev
 https://life-os-week-planner.d5vdwygrnn.chatgpt.site
 
 > 说明：原 Site projection 无法导出原始源代码，因此本仓库是依据现有可运行页面及保存的投影内容做的工程恢复，不声称是原始源码的逐字复制。
+
+
+## Build v1
+
+Build 已加入主工程，但保留 Weekly Planner 作为独立视图。
+
+当前能力：
+- 快速记录内容
+- 日期 + 时间
+- 浏览器本地持久化
+- 日 / 周 / 月 / 年筛选统计
+- 记录数 / 活跃天数 / 全部累计
+- 删除记录
+
+数据仍保存在当前浏览器的 `localStorage`，下一阶段可迁移到云端存储。

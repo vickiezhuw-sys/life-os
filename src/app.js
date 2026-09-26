@@ -10,6 +10,21 @@ const MODULES = [
 ];
 
 const STORE_KEY = "life-os-weekly-planner-v1";
+const BUILD_KEY = "life-os-build-v1";
+let currentView = "planner";
+let statsRange = "day";
+
+function loadBuild() {
+  try {
+    const v = JSON.parse(localStorage.getItem(BUILD_KEY));
+    if (Array.isArray(v)) return v;
+  } catch {}
+  return [];
+}
+function saveBuild(items) {
+  localStorage.setItem(BUILD_KEY, JSON.stringify(items));
+}
+let buildItems = loadBuild();
 const BASE_WEEK_START = "2026-09-07";
 const todayISO = "2026-09-09"; // v1 baseline snapshot
 
@@ -90,6 +105,115 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));
 }
 
+
+function nowLocalInput() {
+  const x = new Date();
+  const local = new Date(x.getTime() - x.getTimezoneOffset()*60000);
+  return local.toISOString().slice(0,16);
+}
+
+function startOfWeek(date) {
+  const x = new Date(date);
+  const day = (x.getDay()+6)%7;
+  x.setDate(x.getDate()-day);
+  x.setHours(0,0,0,0);
+  return x;
+}
+function sameDay(a,b) {
+  return a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate();
+}
+function inRange(item, range) {
+  const x = new Date(item.at);
+  const now = new Date();
+  if (range==="day") return sameDay(x, now);
+  if (range==="week") {
+    const s=startOfWeek(now), e=new Date(s); e.setDate(e.getDate()+7);
+    return x>=s && x<e;
+  }
+  if (range==="month") return x.getFullYear()===now.getFullYear() && x.getMonth()===now.getMonth();
+  if (range==="year") return x.getFullYear()===now.getFullYear();
+  return true;
+}
+function fmtBuildTime(at) {
+  const x=new Date(at);
+  return `${String(x.getMonth()+1).padStart(2,"0")}.${String(x.getDate()).padStart(2,"0")} ${String(x.getHours()).padStart(2,"0")}:${String(x.getMinutes()).padStart(2,"0")}`;
+}
+function renderBuild() {
+  const filtered = buildItems.filter(x=>inRange(x, statsRange)).sort((a,b)=>new Date(b.at)-new Date(a.at));
+  const byDate = {};
+  for (const x of filtered) {
+    const key = x.at.slice(0,10);
+    (byDate[key] ||= []).push(x);
+  }
+  document.querySelector("#app").innerHTML = `
+    <main class="shell">
+      <header class="topbar">
+        <div><div class="brand-kicker">L ↗ Life OS</div><h1>我的人生操作系统</h1></div>
+        <div class="view-tabs">
+          <button class="view-tab" id="toPlanner">Weekly</button>
+          <button class="view-tab active">Build</button>
+        </div>
+      </header>
+
+      <section class="build-hero">
+        <div>
+          <div class="brand-kicker">BUILD LOG</div>
+          <h2>把做过的事，留下来。</h2>
+          <p>记录内容、日期和时间。先捕捉，再统计。</p>
+        </div>
+        <form class="capture" id="buildForm">
+          <div class="capture-main">
+            <input name="content" autocomplete="off" placeholder="刚刚做了什么？" required />
+            <input name="at" type="datetime-local" value="${nowLocalInput()}" required />
+          </div>
+          <button class="btn primary">记录</button>
+        </form>
+      </section>
+
+      <section class="build-stats">
+        <div class="stats-head">
+          <div>
+            <div class="brand-kicker">STATISTICS</div>
+            <h3>${filtered.length} 条记录</h3>
+          </div>
+          <div class="range-tabs">
+            ${[["day","日"],["week","周"],["month","月"],["year","年"]].map(([k,l])=>`<button class="range-tab ${statsRange===k?"active":""}" data-range="${k}">${l}</button>`).join("")}
+          </div>
+        </div>
+        <div class="stat-cards">
+          <div class="stat-card"><span>记录数</span><strong>${filtered.length}</strong></div>
+          <div class="stat-card"><span>活跃天数</span><strong>${Object.keys(byDate).length}</strong></div>
+          <div class="stat-card"><span>全部累计</span><strong>${buildItems.length}</strong></div>
+        </div>
+      </section>
+
+      <section class="build-list">
+        ${filtered.length ? filtered.map(x=>`
+          <article class="build-item">
+            <div>
+              <div class="build-content">${escapeHtml(x.content)}</div>
+              <div class="build-time">${fmtBuildTime(x.at)}</div>
+            </div>
+            <button class="edit" data-delete-build="${x.id}">删除</button>
+          </article>
+        `).join("") : `<div class="build-empty">这个时间范围还没有记录。先写下第一条。</div>`}
+      </section>
+    </main>
+  `;
+  document.querySelector("#toPlanner").onclick=()=>{currentView="planner"; render();};
+  document.querySelector("#buildForm").onsubmit=(e)=>{
+    e.preventDefault();
+    const fd=new FormData(e.currentTarget);
+    buildItems.unshift({id:id(), content:fd.get("content").trim(), at:fd.get("at")});
+    saveBuild(buildItems); renderBuild();
+  };
+  document.querySelectorAll("[data-range]").forEach(el=>el.onclick=()=>{statsRange=el.dataset.range; renderBuild();});
+  document.querySelectorAll("[data-delete-build]").forEach(el=>el.onclick=()=>{
+    buildItems=buildItems.filter(x=>x.id!==el.dataset.deleteBuild);
+    saveBuild(buildItems); renderBuild();
+  });
+}
+
 function render() {
   const dates=weekDates(state.weekStart);
   const visible=state.tasks.filter(t=>dates.includes(t.date));
@@ -100,7 +224,13 @@ function render() {
     <main class="shell">
       <header class="topbar">
         <div><div class="brand-kicker">L ↗ Life OS</div><h1>我的人生操作系统</h1></div>
-        <div class="local-note">进度保存在此浏览器</div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <div class="view-tabs">
+            <button class="view-tab active">Weekly</button>
+            <button class="view-tab" id="toBuild">Build</button>
+          </div>
+          <div class="local-note">进度保存在此浏览器</div>
+        </div>
       </header>
 
       <section class="hero">
@@ -180,5 +310,6 @@ function render() {
   document.querySelector("#prevWeek").onclick=()=>{state.weekStart=addDays(state.weekStart,-7); save(state); render();};
   document.querySelector("#nextWeek").onclick=()=>{state.weekStart=addDays(state.weekStart,7); save(state); render();};
   document.querySelector("#thisWeek").onclick=()=>{state.weekStart=BASE_WEEK_START; save(state); render();};
+  document.querySelector("#toBuild").onclick=()=>{currentView="build"; renderBuild();};
 }
 render();
