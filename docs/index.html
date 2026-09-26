@@ -1,0 +1,548 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f6f3ec" />
+    <title>Life OS · Weekly Planner</title>
+  <style>:root {
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  color: #21201d;
+  background: #f4f0e7;
+  font-synthesis: none;
+}
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; background: #f4f0e7; }
+button, input, textarea, select { font: inherit; }
+button { cursor: pointer; }
+.shell { max-width: 1120px; margin: 0 auto; padding: 28px 18px 80px; }
+.topbar { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; padding-bottom:22px; border-bottom:1px solid #c9c1b3; }
+.brand-kicker { font-size:12px; letter-spacing:.18em; text-transform:uppercase; color:#716c62; }
+h1 { margin:4px 0 0; font-size:28px; line-height:1.15; font-weight:680; }
+.local-note { font-size:12px; color:#827b70; background:#ebe5da; padding:8px 10px; border-radius:999px; }
+.hero { display:grid; grid-template-columns: 1.5fr .75fr; gap:28px; padding:36px 0 28px; }
+.hero h2 { font-family: Georgia, "Songti SC", serif; font-weight:500; font-size:40px; line-height:1.15; margin:8px 0 12px; }
+.hero p { color:#6c675f; line-height:1.7; margin:0; }
+.progress-card { border-left:1px solid #c9c1b3; padding-left:28px; display:flex; align-items:center; gap:22px; }
+.progress-ring { width:96px; height:96px; border-radius:50%; display:grid; place-items:center; background:conic-gradient(#25231f var(--p), #ddd6ca 0); position:relative; }
+.progress-ring::after { content:""; position:absolute; width:76px; height:76px; border-radius:50%; background:#f4f0e7; }
+.progress-ring strong { z-index:1; font-size:24px; }
+.muted { color:#7c756a; font-size:13px; }
+.modules { display:grid; grid-template-columns:repeat(5,1fr); gap:10px; margin:16px 0 24px; }
+.module { padding:16px; min-height:112px; border:1px solid #cbc3b5; border-radius:16px; background:rgba(255,255,255,.28); display:flex; flex-direction:column; justify-content:space-between; }
+.module-name { font-size:14px; font-weight:650; }
+.module-sub { font-size:12px; color:#817a70; }
+.module-count { font-size:13px; }
+.priority { display:flex; justify-content:space-between; gap:18px; padding:18px 0 32px; border-top:1px solid #c9c1b3; }
+.priority strong { font-weight:650; }
+.priority span { color:#625e56; }
+.planner { background:#fbf8f1; border:1px solid #d3cabc; border-radius:24px; overflow:hidden; box-shadow:0 18px 45px rgba(70,56,34,.06); }
+.planner-head { padding:22px 24px; border-bottom:1px solid #ddd4c6; display:flex; justify-content:space-between; gap:18px; align-items:center; }
+.planner-title h3 { margin:0 0 4px; font-size:22px; }
+.planner-title p { margin:0; color:#7b7469; font-size:13px; }
+.actions { display:flex; gap:8px; flex-wrap:wrap; }
+.btn { border:1px solid #bdb3a4; background:transparent; color:#292722; border-radius:999px; padding:9px 13px; }
+.btn.primary { background:#25231f; border-color:#25231f; color:#fff; }
+.btn.ghost { border-color:transparent; padding-inline:8px; color:#6f685d; }
+.days { display:grid; grid-template-columns:repeat(5, minmax(0,1fr)); }
+.day { border-right:1px solid #e2dbcf; min-height:460px; padding:18px 14px; }
+.day:last-child { border-right:0; }
+.day.today { background:#f4efe4; }
+.day-head { display:flex; justify-content:space-between; gap:8px; align-items:flex-start; padding:0 2px 14px; }
+.day-title { font-size:13px; font-weight:700; }
+.day-date { font-size:12px; color:#817a70; margin-top:3px; }
+.day-count { font-size:11px; color:#817a70; white-space:nowrap; }
+.task { padding:13px 0; border-top:1px solid #e5ded2; }
+.task-row { display:flex; gap:8px; align-items:flex-start; }
+.check { width:18px; height:18px; margin-top:2px; border-radius:50%; border:1px solid #9e9588; background:transparent; display:grid; place-items:center; flex:0 0 auto; padding:0; }
+.check.done { background:#25231f; color:#fff; border-color:#25231f; }
+.task-title { font-size:13px; line-height:1.4; font-weight:620; flex:1; }
+.task.done .task-title { text-decoration:line-through; color:#91897d; }
+.task-note { margin:7px 0 0 26px; color:#7e776d; font-size:11.5px; line-height:1.5; }
+.task-meta { margin:8px 0 0 26px; display:flex; justify-content:space-between; align-items:center; gap:8px; }
+.badge { font-size:10px; padding:4px 7px; border-radius:999px; border:1px solid #d2c9bb; color:#696259; }
+.edit { border:0; background:transparent; color:#8b8378; font-size:11px; padding:0; }
+.add-task { width:100%; text-align:left; border:0; background:transparent; color:#777065; padding:14px 2px 4px; font-size:12px; }
+.footer { text-align:center; color:#7a7368; font-family:Georgia, "Songti SC", serif; padding:28px 16px; font-size:15px; }
+.modal-backdrop { position:fixed; inset:0; background:rgba(20,18,15,.34); display:grid; place-items:center; padding:20px; z-index:10; }
+.modal { width:min(520px,100%); background:#fbf8f1; border-radius:20px; padding:22px; box-shadow:0 25px 80px rgba(0,0,0,.2); }
+.modal h4 { margin:0 0 16px; }
+.field { display:grid; gap:6px; margin:12px 0; }
+.field label { font-size:12px; color:#766f64; }
+.field input, .field textarea, .field select { width:100%; border:1px solid #cfc5b6; border-radius:12px; background:#fffdf8; padding:10px 12px; }
+.field textarea { min-height:84px; resize:vertical; }
+.modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
+.empty { color:#9a9185; font-size:12px; padding:12px 0; }
+@media (max-width: 900px) {
+  .modules { grid-template-columns:repeat(2,1fr); }
+  .hero { grid-template-columns:1fr; }
+  .progress-card { border-left:0; padding-left:0; border-top:1px solid #c9c1b3; padding-top:24px; }
+  .days { display:block; }
+  .day { border-right:0; border-bottom:1px solid #ddd4c6; min-height:auto; }
+  .planner-head { align-items:flex-start; flex-direction:column; }
+  .capture-main { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .capture-main input[name="content"] { grid-column:1 / -1; }
+}
+@media (max-width: 520px) {
+  .shell { padding:18px 10px 54px; }
+  .topbar { flex-direction:column; }
+  .hero h2 { font-size:34px; }
+  .modules { grid-template-columns:1fr; }
+  .priority { flex-direction:column; }
+}
+
+
+.view-tabs { display:flex; gap:4px; padding:4px; background:#e9e2d7; border-radius:999px; }
+.view-tab { border:0; background:transparent; color:#746d62; border-radius:999px; padding:7px 12px; }
+.view-tab.active { background:#25231f; color:#fff; }
+
+.build-hero { padding:38px 0 26px; border-bottom:1px solid #c9c1b3; }
+.build-hero h2 { font-family:Georgia,"Songti SC",serif; font-size:38px; font-weight:500; margin:8px 0 8px; }
+.build-hero p { margin:0 0 24px; color:#746e64; }
+.capture { display:flex; gap:10px; align-items:stretch; }
+.capture-main { display:grid; grid-template-columns:minmax(0,1fr) auto 145px 160px; gap:8px; flex:1; }
+.capture input, .capture select { border:1px solid #c9c1b3; border-radius:14px; padding:12px 14px; background:#fffdf8; min-width:0; }
+.build-stats { padding:28px 0; }
+.stats-head { display:flex; justify-content:space-between; gap:16px; align-items:end; }
+.stats-head h3 { margin:5px 0 0; font-size:25px; }
+.stats-filters { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.stats-filters label { font-size:13px; color:#746d62; }
+.stats-filters select { border:1px solid #c9c1b3; background:#fffdf8; border-radius:999px; padding:7px 10px; min-width:132px; }
+.range-tabs { display:flex; gap:4px; padding:4px; background:#e9e2d7; border-radius:999px; }
+.range-tab { border:0; background:transparent; padding:7px 12px; border-radius:999px; color:#746d62; }
+.range-tab.active { background:#25231f; color:#fff; }
+.stat-cards { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:16px; }
+.stat-card { border:1px solid #cec5b8; border-radius:16px; padding:16px; background:rgba(255,255,255,.28); display:flex; flex-direction:column; gap:8px; }
+.stat-card span { color:#7b7469; font-size:12px; }
+.stat-card strong { font-size:25px; }
+.duration-chart { margin-top:18px; padding:20px 18px 14px; border:1px solid #cec5b8; border-radius:18px; background:#fbf8f1; }
+.chart-heading { display:flex; align-items:baseline; justify-content:space-between; gap:12px; }
+.chart-heading strong { font-size:16px; }
+.chart-heading span { font-size:12px; color:#827a6f; }
+.chart-scroll { overflow-x:auto; padding-bottom:6px; }
+.chart-bars { display:flex; gap:7px; align-items:end; min-width:100%; height:172px; padding-top:14px; }
+.chart-column { flex:1 0 20px; min-width:20px; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:end; }
+.chart-month .chart-column { flex-basis:22px; }
+.chart-value { min-height:15px; font-size:10px; color:#5f594f; white-space:nowrap; }
+.chart-track { width:100%; height:112px; display:flex; align-items:end; border-bottom:1px solid #c9c1b3; }
+.chart-fill { width:100%; background:#38352f; border-radius:4px 4px 0 0; }
+.chart-label { margin-top:7px; font-size:10px; color:#827a6f; white-space:nowrap; }
+.build-list { background:#fbf8f1; border:1px solid #d3cabc; border-radius:20px; overflow:hidden; }
+.build-item { display:flex; justify-content:space-between; gap:14px; padding:16px 18px; border-bottom:1px solid #e2dbcf; align-items:center; }
+.build-item:last-child { border-bottom:0; }
+.build-content { font-size:14px; font-weight:620; line-height:1.5; }
+.build-time { color:#827a6f; font-size:11px; margin-top:5px; }
+.build-category { display:inline-block; margin-top:7px; padding:4px 8px; border:1px solid #d2c9bb; border-radius:999px; color:#696259; font-size:11px; }
+.build-actions { display:flex; gap:14px; flex-shrink:0; }
+.build-empty { padding:46px 18px; text-align:center; color:#8a8277; }
+@media (max-width: 620px) {
+  .capture { flex-direction:column; }
+  .capture-main { grid-template-columns:1fr; }
+  .stats-head { align-items:flex-start; flex-direction:column; }
+  .stats-filters { width:100%; }
+  .stat-cards { grid-template-columns:1fr 1fr 1fr; }
+  .stat-card { padding:12px; }
+  .stat-card strong { font-size:16px; }
+  .chart-bars { min-width:660px; }
+  .chart-week { min-width:100%; }
+  .chart-heading { flex-direction:column; gap:4px; }
+}
+</style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script>
+const baseline = [{"date": "2026-09-09", "module": "Health OS", "title": "完成本周第 1 次运动", "note": "如果今天已运动，直接勾选；无需晚上补练。"}, {"date": "2026-09-09", "module": "Inner OS", "title": "收好工作，给今晚留一点空间", "note": "处理手头待办；关系正常相处，愿意聊时再聊。"}, {"date": "2026-09-09", "module": "Health OS", "title": "正常晚餐，睡前做一次小记录", "note": "记录饮食、酒 / 夜宵和身体感受，尽量早点睡。"}, {"date": "2026-09-10", "module": "Health OS", "title": "晨起称重，记录第一个数字", "note": "上厕所后、早餐前称重；填在任务备注里即可。"}, {"date": "2026-09-10", "module": "Wealth OS", "title": "用 30 分钟收集全部负债", "note": "剩余本金、利率、月供、到期日、提前还款条件；先收集。"}, {"date": "2026-09-10", "module": "Health OS", "title": "给身体一个恢复日", "note": "正常饮食；状态允许就散步 30 分钟，腿酸可休息。"}, {"date": "2026-09-11", "module": "Career OS", "title": "把工作收口，给周末腾空间", "note": "处理会让你周末挂心的工作。"}, {"date": "2026-09-11", "module": "Health OS", "title": "完成本周第 2 次运动", "note": "30–45 分钟，打球也算；聚餐适量，避免连续加餐。"}, {"date": "2026-09-11", "module": "Experience OS", "title": "选定周末的一件新体验", "note": "打球、自驾、徒步或骑车，定一个就好。"}, {"date": "2026-09-12", "module": "Experience OS", "title": "留半天，真正走到户外", "note": "去完成选好的体验，给日常换一个场景。"}, {"date": "2026-09-12", "module": "Experience OS", "title": "拍几张照片，留下第一组 Life Log", "note": "不要求发布，留下你正在生活的记录。"}, {"date": "2026-09-12", "module": "Inner OS", "title": "留一段不带任务的自由时间", "note": "休息或打游戏都可以，不把周末变成培训班。"}, {"date": "2026-09-13", "module": "Health OS", "title": "完成本周第 3 次运动或轻恢复", "note": "如果周六运动量大，今天改为散步或轻运动。"}, {"date": "2026-09-13", "module": "Wealth OS", "title": "整理债务，测算清零日期", "note": "核对完整数据与可还款金额，准备确定 Debt Freedom Date。"}, {"date": "2026-09-13", "module": "Career OS", "title": "选定第一个 100 天 AI 项目", "note": "花 30–60 分钟明确方向和第一步，不要求做完项目。"}, {"date": "2026-09-13", "module": "Inner OS", "title": "用 15 分钟做周复盘", "note": "看体重、运动、酒 / 夜宵、新体验和情绪；写下周最重要的 3 件事。"}];
+
+const MODULES = [
+  ["Health OS", "身体重建"],
+  ["Wealth OS", "财务地基"],
+  ["Experience OS", "生活体验"],
+  ["Career OS", "职业成长"],
+  ["Inner OS", "内在秩序"],
+];
+
+const STORE_KEY = "life-os-weekly-planner-v1";
+const BUILD_KEY = "life-os-build-v1";
+let currentView = "planner";
+let statsRange = "day";
+let statsModule = "all";
+
+function loadBuild() {
+  try {
+    const v = JSON.parse(localStorage.getItem(BUILD_KEY));
+    if (Array.isArray(v)) return v;
+  } catch {}
+  return [];
+}
+function saveBuild(items) {
+  localStorage.setItem(BUILD_KEY, JSON.stringify(items));
+}
+let buildItems = loadBuild();
+const BASE_WEEK_START = "2026-09-07";
+const todayISO = "2026-09-09"; // v1 baseline snapshot
+
+function id() {
+  return (crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`);
+}
+function seed() {
+  return baseline.map(t => ({...t, id:id(), done:false}));
+}
+function load() {
+  try {
+    const v = JSON.parse(localStorage.getItem(STORE_KEY));
+    if (v && Array.isArray(v.tasks)) return v;
+  } catch {}
+  const v = { weekStart: BASE_WEEK_START, tasks: seed() };
+  save(v);
+  return v;
+}
+function save(state) {
+  localStorage.setItem(STORE_KEY, JSON.stringify(state));
+}
+let state = load();
+
+function d(iso) { return new Date(`${iso}T00:00:00`); }
+function iso(date) {
+  return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
+}
+function addDays(isoDate, n) {
+  const x=d(isoDate); x.setDate(x.getDate()+n); return iso(x);
+}
+function weekDates(start) { return [2,3,4,5,6].map(x=>addDays(start,x)); } // Wed-Sun baseline
+function fmtRange(start) {
+  const end=addDays(start,6), a=d(start), b=d(end);
+  return `${String(a.getMonth()+1).padStart(2,"0")}.${String(a.getDate()).padStart(2,"0")} — ${String(b.getMonth()+1).padStart(2,"0")}.${String(b.getDate()).padStart(2,"0")}`;
+}
+const weekday = ["星期日","星期一","星期二","星期三","星期四","星期五","星期六"];
+
+function openEditor(task={}, date=weekDates(state.weekStart)[0]) {
+  const editing = Boolean(task.id);
+  document.body.insertAdjacentHTML("beforeend", `
+    <div class="modal-backdrop" id="modal">
+      <form class="modal" id="taskForm">
+        <h4>${editing ? "编辑任务" : "新增任务"}</h4>
+        <div class="field"><label>日期</label><input name="date" type="date" value="${task.date || date}" required /></div>
+        <div class="field"><label>模块</label><select name="module">${MODULES.map(([m])=>`<option ${task.module===m?"selected":""}>${m}</option>`).join("")}</select></div>
+        <div class="field"><label>任务</label><input name="title" value="${escapeHtml(task.title||"")}" required /></div>
+        <div class="field"><label>备注</label><textarea name="note">${escapeHtml(task.note||"")}</textarea></div>
+        <div class="modal-actions">
+          ${editing ? `<button type="button" class="btn" id="deleteTask">删除</button>` : ""}
+          <button type="button" class="btn" id="cancelModal">取消</button>
+          <button class="btn primary">保存</button>
+        </div>
+      </form>
+    </div>
+  `);
+  const modal=document.querySelector("#modal");
+  modal.querySelector("#cancelModal").onclick=()=>modal.remove();
+  if (editing) modal.querySelector("#deleteTask").onclick=()=>{
+    state.tasks=state.tasks.filter(x=>x.id!==task.id); save(state); modal.remove(); render();
+  };
+  modal.querySelector("#taskForm").onsubmit=(e)=>{
+    e.preventDefault();
+    const fd=new FormData(e.currentTarget);
+    const next = {
+      id: task.id || id(),
+      done: task.done || false,
+      date: fd.get("date"),
+      module: fd.get("module"),
+      title: fd.get("title").trim(),
+      note: fd.get("note").trim()
+    };
+    if (editing) state.tasks=state.tasks.map(x=>x.id===task.id?next:x);
+    else state.tasks.push(next);
+    save(state); modal.remove(); render();
+  };
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));
+}
+
+
+function nowLocalInput() {
+  const x = new Date();
+  const local = new Date(x.getTime() - x.getTimezoneOffset()*60000);
+  return local.toISOString().slice(0,16);
+}
+
+function startOfWeek(date) {
+  const x = new Date(date);
+  const day = (x.getDay()+6)%7;
+  x.setDate(x.getDate()-day);
+  x.setHours(0,0,0,0);
+  return x;
+}
+function sameDay(a,b) {
+  return a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate();
+}
+function inRange(item, range) {
+  const x = new Date(item.at);
+  const now = new Date();
+  if (range==="day") return sameDay(x, now);
+  if (range==="week") {
+    const s=startOfWeek(now), e=new Date(s); e.setDate(e.getDate()+7);
+    return x>=s && x<e;
+  }
+  if (range==="month") return x.getFullYear()===now.getFullYear() && x.getMonth()===now.getMonth();
+  if (range==="year") return x.getFullYear()===now.getFullYear();
+  return true;
+}
+function fmtBuildTime(at) {
+  const x=new Date(at);
+  return `${String(x.getMonth()+1).padStart(2,"0")}.${String(x.getDate()).padStart(2,"0")} ${String(x.getHours()).padStart(2,"0")}:${String(x.getMinutes()).padStart(2,"0")}`;
+}
+function durationMinutes(item) {
+  const value = Number(item.duration);
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+function fmtDuration(minutes) {
+  if (!minutes) return "0 分钟";
+  const hours = Math.floor(minutes / 60), rest = minutes % 60;
+  return hours ? `${hours} 小时${rest ? ` ${rest} 分钟` : ""}` : `${rest} 分钟`;
+}
+function moduleOptions(selected = "") {
+  return `<option value="" ${!selected ? "selected" : ""} disabled>选择 OS 分类</option>` +
+    MODULES.map(([name])=>`<option value="${name}" ${selected===name ? "selected" : ""}>${name}</option>`).join("");
+}
+function editBuild(item) {
+  const modal = document.createElement("div");
+  modal.className = "modal-backdrop";
+  modal.innerHTML = `<form class="modal" id="editBuildForm">
+    <h4>编辑记录</h4>
+    <div class="field"><label for="editBuildContent">内容</label><input id="editBuildContent" name="content" required value="${escapeHtml(item.content)}" /></div>
+    <div class="field"><label for="editBuildAt">开始时间</label><input id="editBuildAt" name="at" type="datetime-local" required value="${escapeHtml(item.at)}" /></div>
+    <div class="field"><label for="editBuildDuration">时长（分钟）</label><input id="editBuildDuration" name="duration" type="number" inputmode="numeric" min="1" max="1440" step="1" value="${durationMinutes(item) || ""}" /></div>
+    <div class="field"><label for="editBuildModule">OS 分类</label><select id="editBuildModule" name="module" required>${moduleOptions(item.module)}</select></div>
+    <div class="modal-actions"><button type="button" class="btn" id="cancelBuildEdit">取消</button><button class="btn primary">保存</button></div>
+  </form>`;
+  document.body.append(modal);
+  modal.querySelector("#cancelBuildEdit").onclick=()=>modal.remove();
+  modal.onclick=e=>{if(e.target===modal) modal.remove();};
+  modal.querySelector("form").onsubmit=e=>{
+    e.preventDefault();
+    const fd=new FormData(e.currentTarget);
+    const updated={...item,content:fd.get("content").trim(),at:fd.get("at"),duration:fd.get("duration") ? Number(fd.get("duration")) : 0,module:fd.get("module")};
+    buildItems=buildItems.map(x=>x.id===item.id ? updated : x);
+    saveBuild(buildItems); modal.remove(); renderBuild();
+  };
+}
+function durationChart(items, range) {
+  const now = new Date();
+  let labels = [], keys = [];
+  if (range === "day") {
+    keys = Array.from({length:24}, (_,i)=>i);
+    labels = keys.map(i=>`${i}时`);
+  } else if (range === "week") {
+    keys = Array.from({length:7}, (_,i)=>i);
+    labels = ["周一","周二","周三","周四","周五","周六","周日"];
+  } else if (range === "month") {
+    keys = Array.from({length:new Date(now.getFullYear(),now.getMonth()+1,0).getDate()},(_,i)=>i+1);
+    labels = keys.map(i=>`${i}日`);
+  } else {
+    keys = Array.from({length:12}, (_,i)=>i);
+    labels = keys.map(i=>`${i+1}月`);
+  }
+  const values = keys.map(()=>0);
+  for (const item of items) {
+    const date = new Date(item.at);
+    if (Number.isNaN(date.getTime())) continue;
+    const key = range === "day" ? date.getHours() : range === "week" ? (date.getDay()+6)%7 : range === "month" ? date.getDate() : date.getMonth();
+    values[keys.indexOf(key)] += durationMinutes(item);
+  }
+  const max = Math.max(...values, 1);
+  return `<div class="duration-chart" role="img" aria-label="${range === "day" ? "今日每小时" : range === "week" ? "本周每日" : range === "month" ? "本月每日" : "今年每月"}记录时长：${values.reduce((sum,v)=>sum+v,0)} 分钟">
+    <div class="chart-heading"><strong>投入时间</strong><span>单位：分钟 · 按记录的开始时间统计</span></div>
+    <div class="chart-scroll"><div class="chart-bars ${range === "month" ? "chart-month" : ""} ${range === "week" ? "chart-week" : ""}">
+      ${values.map((value,i)=>`<div class="chart-column" title="${labels[i]}：${fmtDuration(value)}"><span class="chart-value">${value || ""}</span><div class="chart-track"><div class="chart-fill" style="height:${value ? Math.max(4, value/max*100) : 0}%"></div></div><span class="chart-label">${labels[i]}</span></div>`).join("")}
+    </div></div>
+  </div>`;
+}
+function renderBuild() {
+  const filtered = buildItems.filter(x=>inRange(x, statsRange) && (statsModule === "all" || x.module === statsModule)).sort((a,b)=>new Date(b.at)-new Date(a.at));
+  const byDate = {};
+  for (const x of filtered) {
+    const key = x.at.slice(0,10);
+    (byDate[key] ||= []).push(x);
+  }
+  const totalMinutes = filtered.reduce((sum,x)=>sum+durationMinutes(x),0);
+  document.querySelector("#app").innerHTML = `
+    <main class="shell">
+      <header class="topbar">
+        <div><div class="brand-kicker">L ↗ Life OS</div><h1>我的人生操作系统</h1></div>
+        <div class="view-tabs">
+          <button class="view-tab" id="toPlanner">Weekly</button>
+          <button class="view-tab active">Build</button>
+        </div>
+      </header>
+
+      <section class="build-hero">
+        <div>
+          <div class="brand-kicker">BUILD LOG</div>
+          <h2>把做过的事，留下来。</h2>
+          <p>记录做了什么、开始时间和投入时长。</p>
+        </div>
+        <form class="capture" id="buildForm">
+          <div class="capture-main">
+            <input name="content" autocomplete="off" placeholder="刚刚做了什么？" required />
+            <input name="at" type="datetime-local" value="${nowLocalInput()}" required />
+            <input name="duration" type="number" inputmode="numeric" min="1" max="1440" step="1" placeholder="时长（分钟）" aria-label="时长（分钟）" required />
+            <select name="module" aria-label="OS 分类" required>${moduleOptions()}</select>
+          </div>
+          <button class="btn primary">记录</button>
+        </form>
+      </section>
+
+      <section class="build-stats">
+        <div class="stats-head">
+          <div>
+            <div class="brand-kicker">STATISTICS</div>
+            <h3>${filtered.length} 条记录</h3>
+          </div>
+          <div class="stats-filters"><label for="statsModule">分类</label><select id="statsModule" aria-label="筛选 OS 分类">
+            <option value="all">全部 OS</option>
+            ${MODULES.map(([name])=>`<option value="${name}" ${statsModule===name ? "selected" : ""}>${name}</option>`).join("")}
+          </select><div class="range-tabs">
+            ${[["day","日"],["week","周"],["month","月"],["year","年"]].map(([k,l])=>`<button class="range-tab ${statsRange===k?"active":""}" data-range="${k}">${l}</button>`).join("")}
+          </div></div>
+        </div>
+        <div class="stat-cards">
+          <div class="stat-card"><span>记录数</span><strong>${filtered.length}</strong></div>
+          <div class="stat-card"><span>活跃天数</span><strong>${Object.keys(byDate).length}</strong></div>
+          <div class="stat-card"><span>投入时长</span><strong>${fmtDuration(totalMinutes)}</strong></div>
+        </div>
+        ${durationChart(filtered, statsRange)}
+      </section>
+
+      <section class="build-list">
+        ${filtered.length ? filtered.map(x=>`
+          <article class="build-item">
+            <div>
+              <div class="build-content">${escapeHtml(x.content)}</div>
+              <div class="build-time">${fmtBuildTime(x.at)}${durationMinutes(x) ? ` · ${fmtDuration(durationMinutes(x))}` : " · 未记录时长"}</div>
+              <div class="build-category">${MODULES.some(([name])=>name===x.module) ? x.module : "未分类"}</div>
+            </div>
+            <div class="build-actions"><button class="edit" data-edit-build="${x.id}">编辑</button><button class="edit" data-delete-build="${x.id}">删除</button></div>
+          </article>
+        `).join("") : `<div class="build-empty">这个时间范围还没有记录。先写下第一条。</div>`}
+      </section>
+    </main>
+  `;
+  document.querySelector("#toPlanner").onclick=()=>{currentView="planner"; render();};
+  document.querySelector("#buildForm").onsubmit=(e)=>{
+    e.preventDefault();
+    const fd=new FormData(e.currentTarget);
+    buildItems.unshift({id:id(), content:fd.get("content").trim(), at:fd.get("at"), duration:Number(fd.get("duration")), module:fd.get("module")});
+    saveBuild(buildItems); renderBuild();
+  };
+  document.querySelectorAll("[data-range]").forEach(el=>el.onclick=()=>{statsRange=el.dataset.range; renderBuild();});
+  document.querySelector("#statsModule").onchange=e=>{statsModule=e.target.value; renderBuild();};
+  document.querySelectorAll("[data-edit-build]").forEach(el=>el.onclick=()=>editBuild(buildItems.find(x=>x.id===el.dataset.editBuild)));
+  document.querySelectorAll("[data-delete-build]").forEach(el=>el.onclick=()=>{
+    buildItems=buildItems.filter(x=>x.id!==el.dataset.deleteBuild);
+    saveBuild(buildItems); renderBuild();
+  });
+}
+
+function render() {
+  const dates=weekDates(state.weekStart);
+  const visible=state.tasks.filter(t=>dates.includes(t.date));
+  const done=visible.filter(t=>t.done).length;
+  const pct=visible.length?Math.round(done/visible.length*100):0;
+
+  document.querySelector("#app").innerHTML = `
+    <main class="shell">
+      <header class="topbar">
+        <div><div class="brand-kicker">L ↗ Life OS</div><h1>我的人生操作系统</h1></div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <div class="view-tabs">
+            <button class="view-tab active">Weekly</button>
+            <button class="view-tab" id="toBuild">Build</button>
+          </div>
+          <div class="local-note">进度保存在此浏览器</div>
+        </div>
+      </header>
+
+      <section class="hero">
+        <div>
+          <div class="brand-kicker">WEEKLY OVERVIEW</div>
+          <h2>每一步，都算数。</h2>
+          <p>在解决问题的同时，<br/>继续把今天过好。</p>
+        </div>
+        <div class="progress-card">
+          <div class="progress-ring" style="--p:${pct}%"><strong>${pct}%</strong></div>
+          <div><div class="muted">本周完成度</div><div style="font-size:18px;margin-top:6px">${done} / ${visible.length} 项已完成</div></div>
+        </div>
+      </section>
+
+      <section>
+        <div class="brand-kicker">五个生活模块</div>
+        <div class="modules">
+          ${MODULES.map(([name,sub])=>{
+            const ts=visible.filter(t=>t.module===name);
+            return `<div class="module"><div><div class="module-name">${name}</div><div class="module-sub">${sub}</div></div><div class="module-count">${ts.filter(t=>t.done).length} / ${ts.length}</div></div>`;
+          }).join("")}
+        </div>
+      </section>
+
+      <section class="priority">
+        <strong>这周最重要的两件事</strong>
+        <span>出去体验一次 · 把负债盘清楚</span>
+        <span class="muted">一步一步，把生活过好</span>
+      </section>
+
+      <section class="planner">
+        <div class="planner-head">
+          <div class="planner-title">
+            <h3>本周计划　${fmtRange(state.weekStart)}</h3>
+            <p>从今天到周末，专注眼前这一件事。 · ${visible.filter(t=>!t.done).length} 项待完成</p>
+          </div>
+          <div class="actions">
+            <button class="btn primary" id="addTop">新增任务</button>
+            <button class="btn" id="prevWeek">上一周</button>
+            <button class="btn" id="thisWeek">本周</button>
+            <button class="btn" id="nextWeek">下一周</button>
+          </div>
+        </div>
+        <div class="days">
+          ${dates.map(date=>{
+            const dd=d(date), ts=visible.filter(t=>t.date===date);
+            return `<article class="day ${date===todayISO?"today":""}">
+              <div class="day-head">
+                <div><div class="day-title">${weekday[dd.getDay()]}${date===todayISO?" · 今天":""}</div><div class="day-date">${String(dd.getMonth()+1).padStart(2,"0")}月${String(dd.getDate()).padStart(2,"0")} 日</div></div>
+                <div class="day-count">${ts.filter(t=>t.done).length} / ${ts.length} 完成</div>
+              </div>
+              <div>
+                ${ts.length?ts.map(t=>`
+                  <div class="task ${t.done?"done":""}">
+                    <div class="task-row">
+                      <button class="check ${t.done?"done":""}" data-check="${t.id}" aria-label="完成">${t.done?"✓":""}</button>
+                      <div class="task-title">${escapeHtml(t.title)}</div>
+                    </div>
+                    ${t.note?`<div class="task-note">${escapeHtml(t.note)}</div>`:""}
+                    <div class="task-meta"><span class="badge">${t.module}</span><button class="edit" data-edit="${t.id}">编辑</button></div>
+                  </div>`).join(""):`<div class="empty">这一天还没有任务。</div>`}
+                <button class="add-task" data-add="${date}">＋ 添加任务</button>
+              </div>
+            </article>`;
+          }).join("")}
+        </div>
+        <div class="footer">不用一次解决所有问题。完成一件，就是向前一步。</div>
+      </section>
+    </main>
+  `;
+  document.querySelectorAll("[data-check]").forEach(el=>el.onclick=()=>{
+    state.tasks=state.tasks.map(t=>t.id===el.dataset.check?{...t,done:!t.done}:t); save(state); render();
+  });
+  document.querySelectorAll("[data-edit]").forEach(el=>el.onclick=()=>openEditor(state.tasks.find(t=>t.id===el.dataset.edit)));
+  document.querySelectorAll("[data-add]").forEach(el=>el.onclick=()=>openEditor({}, el.dataset.add));
+  document.querySelector("#addTop").onclick=()=>openEditor({}, dates[0]);
+  document.querySelector("#prevWeek").onclick=()=>{state.weekStart=addDays(state.weekStart,-7); save(state); render();};
+  document.querySelector("#nextWeek").onclick=()=>{state.weekStart=addDays(state.weekStart,7); save(state); render();};
+  document.querySelector("#thisWeek").onclick=()=>{state.weekStart=BASE_WEEK_START; save(state); render();};
+  document.querySelector("#toBuild").onclick=()=>{currentView="build"; renderBuild();};
+}
+render();
+</script>
+  </body>
+</html>
