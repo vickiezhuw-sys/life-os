@@ -171,3 +171,23 @@ h1 { margin:4px 0 0; font-size:28px; line-height:1.15; font-weight:680; }
   .month-outcomes,.month-grid,.week-focus { grid-template-columns:1fr; }
   .module-bar-row { grid-template-columns:86px 1fr 72px; }
 }
+
+
+.sync-hero { padding:42px 0 28px; border-bottom:1px solid #c9c1b3; }
+.sync-hero h2 { font-family:Georgia,"Songti SC",serif; font-size:42px; font-weight:500; margin:8px 0 12px; }
+.sync-hero p { color:#746e64; line-height:1.7; max-width:760px; margin:0; }
+.sync-grid { display:grid; grid-template-columns:1.2fr .8fr; gap:12px; padding:28px 0 12px; }
+.sync-card { border:1px solid #cec5b8; border-radius:20px; background:#fbf8f1; padding:20px; }
+.sync-card h3 { margin:7px 0 8px; font-size:22px; }
+.sync-card p { color:#746e64; line-height:1.65; margin:0; font-size:13px; }
+.sync-form { display:grid; gap:10px; margin-top:18px; }
+.sync-form input { width:100%; border:1px solid #cfc5b6; border-radius:12px; background:#fffdf8; padding:11px 12px; }
+.sync-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:18px; align-items:center; }
+.sync-callout { margin-top:18px; padding:13px 14px; border-radius:14px; background:#eee8dd; color:#675f55; font-size:12px; line-height:1.6; }
+.sync-error { margin-top:12px; padding:10px 12px; border-radius:12px; background:#f2e3df; color:#7d4038; font-size:12px; }
+.import-label { display:inline-flex; align-items:center; }
+.sync-explain { margin-top:0; }
+@media (max-width:700px) {
+  .sync-grid { grid-template-columns:1fr; }
+  .sync-hero h2 { font-size:34px; }
+}
