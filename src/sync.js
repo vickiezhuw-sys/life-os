@@ -1,5 +1,5 @@
-const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL || "").replace(/\/$/, "");
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL || "https://vtmdzxlsodnvvknggjqp.supabase.co").replace(/\/$/, "");
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "sb_publishable_sPvPpw7AhbgOrt8M_A2spA_kUPddU8Y";
 const SESSION_KEY = "life-os-cloud-session-v1";
 const META_KEY = "life-os-cloud-meta-v1";
 
