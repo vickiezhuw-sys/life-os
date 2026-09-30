@@ -2,6 +2,7 @@ import "./style.css";
 import baseline from "./baseline-data.json";
 import currentWeekPlan from "./current-week-data.json";
 import sepOctPlan from "./sep-oct-plan.json";
+import monthPlan from "./month-plan.json";
 
 const MODULES = [
   ["Health OS", "身体重建"],
@@ -250,6 +251,7 @@ function renderBuild() {
         <div><div class="brand-kicker">L ↗ Life OS</div><h1>我的人生操作系统</h1></div>
         <div class="view-tabs">
           <button class="view-tab" id="toPlanner">Weekly</button>
+          <button class="view-tab" id="toMonth">Month</button>
           <button class="view-tab active">Build</button>
         </div>
       </header>
@@ -307,6 +309,7 @@ function renderBuild() {
     </main>
   `;
   document.querySelector("#toPlanner").onclick=()=>{currentView="planner"; render();};
+  document.querySelector("#toMonth").onclick=()=>{currentView="month"; renderMonth();};
   document.querySelector("#buildForm").onsubmit=(e)=>{
     e.preventDefault();
     const fd=new FormData(e.currentTarget);
@@ -320,6 +323,75 @@ function renderBuild() {
     buildItems=buildItems.filter(x=>x.id!==el.dataset.deleteBuild);
     saveBuild(buildItems); renderBuild();
   });
+}
+
+function monthBuildItems() {
+  return buildItems.filter(x=>String(x.at || "").slice(0,7)===monthPlan.month);
+}
+function renderMonth() {
+  const monthTasks = state.tasks.filter(t=>String(t.date || "").slice(0,7)===monthPlan.month);
+  const monthBuild = monthBuildItems();
+  const totalMinutes = monthBuild.reduce((sum,x)=>sum+durationMinutes(x),0);
+  const activeDays = new Set(monthBuild.map(x=>String(x.at).slice(0,10))).size;
+  const moduleMinutes = MODULES.map(([name,sub])=>({
+    name, sub, minutes:monthBuild.filter(x=>x.module===name).reduce((sum,x)=>sum+durationMinutes(x),0)
+  }));
+  const maxModule = Math.max(...moduleMinutes.map(x=>x.minutes),1);
+  const now = new Date();
+  const weekStart = currentWeekStart();
+  const weekEnd = addDays(weekStart,6);
+  const weekTasks = state.tasks.filter(t=>t.date>=weekStart && t.date<=weekEnd);
+  const openWeek = weekTasks.filter(t=>!t.done).slice(0,3);
+  const completed = monthTasks.filter(t=>t.done).length;
+  document.querySelector("#app").innerHTML = `
+    <main class="shell">
+      <header class="topbar">
+        <div><div class="brand-kicker">L ↗ Life OS</div><h1>我的人生操作系统</h1></div>
+        <div class="view-tabs">
+          <button class="view-tab" id="toPlanner">Weekly</button>
+          <button class="view-tab active">Month</button>
+          <button class="view-tab" id="toBuild">Build</button>
+        </div>
+      </header>
+      <section class="month-hero">
+        <div class="brand-kicker">MONTHLY OPERATING PAGE · ${monthPlan.label}</div>
+        <h2>${escapeHtml(monthPlan.title)}</h2>
+        <p class="month-theme">${escapeHtml(monthPlan.theme)}</p>
+        <p class="month-principle">${escapeHtml(monthPlan.principle)}</p>
+      </section>
+      <section class="month-outcomes">
+        ${monthPlan.outcomes.map((o,i)=>`<article class="outcome-card">
+          <div class="outcome-no">0${i+1}</div><span class="badge">${o.module}</span>
+          <h3>${escapeHtml(o.title)}</h3><p>${escapeHtml(o.detail)}</p>
+        </article>`).join("")}
+      </section>
+      <section class="month-grid">
+        <article class="month-panel">
+          <div class="brand-kicker">BUILD THIS MONTH</div>
+          <h3>${fmtDuration(totalMinutes)}</h3>
+          <p>${monthBuild.length} 条记录 · ${activeDays} 个活跃日</p>
+          <div class="module-bars">
+            ${moduleMinutes.map(x=>`<div class="module-bar-row"><span>${x.name}</span><div class="module-bar-track"><div class="module-bar-fill" style="width:${x.minutes ? Math.max(5,x.minutes/maxModule*100):0}%"></div></div><strong>${fmtDuration(x.minutes)}</strong></div>`).join("")}
+          </div>
+        </article>
+        <article class="month-panel">
+          <div class="brand-kicker">MONTH PROGRESS</div>
+          <h3>${completed} / ${monthTasks.length}</h3>
+          <p>十月计划已完成</p>
+          <div class="month-progress"><div style="width:${monthTasks.length ? completed/monthTasks.length*100 : 0}%"></div></div>
+          <div class="month-note">重点不是把任务全部清空，而是让 Career、Health 和 Life OS 持续向前。</div>
+        </article>
+      </section>
+      <section class="month-panel week-focus">
+        <div><div class="brand-kicker">THIS WEEK · ${fmtRange(weekStart)}</div><h3>本周重点</h3></div>
+        <div class="focus-list">
+          ${openWeek.length ? openWeek.map(t=>`<div class="focus-item"><span class="badge">${t.module}</span><strong>${escapeHtml(t.title)}</strong><small>${escapeHtml(t.note||"")}</small></div>`).join("") : '<div class="build-empty">本周任务已完成，可以留一点空间给生活。</div>'}
+        </div>
+      </section>
+      <div class="footer">这个月不是填满时间，而是重新拿回时间的使用权。</div>
+    </main>`;
+  document.querySelector("#toPlanner").onclick=()=>{currentView="planner";render();};
+  document.querySelector("#toBuild").onclick=()=>{currentView="build";renderBuild();};
 }
 
 function render() {
@@ -337,6 +409,7 @@ function render() {
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
           <div class="view-tabs">
             <button class="view-tab active">Weekly</button>
+            <button class="view-tab" id="toMonth">Month</button>
             <button class="view-tab" id="toBuild">Build</button>
           </div>
           <div class="local-note">进度保存在此浏览器</div>
@@ -420,6 +493,7 @@ function render() {
   document.querySelector("#prevWeek").onclick=()=>{state.weekStart=addDays(state.weekStart,-7); save(state); render();};
   document.querySelector("#nextWeek").onclick=()=>{state.weekStart=addDays(state.weekStart,7); save(state); render();};
   document.querySelector("#thisWeek").onclick=()=>{state.weekStart=currentWeekStart(); addCurrentPlan(state); save(state); render();};
+  document.querySelector("#toMonth").onclick=()=>{currentView="month"; renderMonth();};
   document.querySelector("#toBuild").onclick=()=>{currentView="build"; renderBuild();};
 }
 render();
