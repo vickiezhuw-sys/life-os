@@ -3,6 +3,7 @@ import baseline from "./baseline-data.json";
 import currentWeekPlan from "./current-week-data.json";
 import sepOctPlan from "./sep-oct-plan.json";
 import monthPlan from "./month-plan.json";
+import { cloudConfigured, getCloudSession, getCloudMeta, signIn, signUp, signOut, pullCloudSnapshot, pushCloudSnapshot } from "./sync.js";
 
 const MODULES = [
   ["Health OS", "身体重建"],
@@ -17,6 +18,8 @@ const BUILD_KEY = "life-os-build-v1";
 let currentView = "planner";
 let statsRange = "day";
 let statsModule = "all";
+let cloudSyncReady = false;
+let syncTimer = null;
 
 function loadBuild() {
   try {
@@ -27,6 +30,7 @@ function loadBuild() {
 }
 function saveBuild(items) {
   localStorage.setItem(BUILD_KEY, JSON.stringify(items));
+  if (cloudSyncReady) queueCloudSync();
 }
 let buildItems = loadBuild();
 const PLAN_WEEK_START = "2026-09-21";
@@ -78,8 +82,77 @@ function load() {
 }
 function save(state) {
   localStorage.setItem(STORE_KEY, JSON.stringify(state));
+  if (cloudSyncReady) queueCloudSync();
 }
 let state = load();
+
+function snapshot() {
+  return {
+    version: 1,
+    planner: state,
+    buildItems,
+    savedAt: new Date().toISOString()
+  };
+}
+function mergeByKey(cloudItems = [], localItems = [], keyFn) {
+  const map = new Map();
+  for (const item of cloudItems) map.set(keyFn(item), item);
+  for (const item of localItems) map.set(keyFn(item), item);
+  return [...map.values()];
+}
+function mergeSnapshot(cloudPayload = {}, localPayload = snapshot()) {
+  const cloudPlanner = cloudPayload.planner || {};
+  const localPlanner = localPayload.planner || {};
+  const planner = {
+    ...cloudPlanner,
+    ...localPlanner,
+    tasks: mergeByKey(
+      cloudPlanner.tasks || [],
+      localPlanner.tasks || [],
+      item => item.id || `${item.date || ""}|${item.title || ""}`
+    )
+  };
+  const builds = mergeByKey(
+    cloudPayload.buildItems || [],
+    localPayload.buildItems || [],
+    item => item.id || `${item.at || ""}|${item.content || ""}`
+  );
+  return { version: 1, planner, buildItems: builds, savedAt: new Date().toISOString() };
+}
+function applySnapshot(payload) {
+  if (!payload) return;
+  if (payload.planner?.tasks) state = payload.planner;
+  if (Array.isArray(payload.buildItems)) buildItems = payload.buildItems;
+  localStorage.setItem(STORE_KEY, JSON.stringify(state));
+  localStorage.setItem(BUILD_KEY, JSON.stringify(buildItems));
+}
+function queueCloudSync() {
+  if (!cloudConfigured || !getCloudSession()?.access_token) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => pushCloudSnapshot(snapshot()).catch(()=>{}), 700);
+}
+async function syncNow() {
+  if (!cloudConfigured || !getCloudSession()?.access_token) return false;
+  const row = await pullCloudSnapshot();
+  const merged = row?.payload ? mergeSnapshot(row.payload, snapshot()) : snapshot();
+  applySnapshot(merged);
+  await pushCloudSnapshot(merged);
+  return true;
+}
+async function initializeCloudSync() {
+  cloudSyncReady = true;
+  if (!cloudConfigured || !getCloudSession()?.access_token) return;
+  try {
+    await syncNow();
+    renderCurrentView();
+  } catch {}
+}
+function renderCurrentView() {
+  if (currentView === "build") renderBuild();
+  else if (currentView === "month") renderMonth();
+  else if (currentView === "sync") renderSync();
+  else render();
+}
 
 function d(iso) { return new Date(`${iso}T00:00:00`); }
 function iso(date) {
@@ -252,7 +325,7 @@ function renderBuild() {
         <div class="view-tabs">
           <button class="view-tab" id="toPlanner">Weekly</button>
           <button class="view-tab" id="toMonth">Month</button>
-          <button class="view-tab active">Build</button>
+          <button class="view-tab active">Build</button>\n          <button class="view-tab" id="toSync">Sync</button>
         </div>
       </header>
 
@@ -394,6 +467,115 @@ function renderMonth() {
   document.querySelector("#toBuild").onclick=()=>{currentView="build";renderBuild();};
 }
 
+
+function fmtSyncTime(value) {
+  if (!value) return "尚未同步";
+  const x = new Date(value);
+  return Number.isNaN(x.getTime()) ? "尚未同步" : x.toLocaleString("zh-CN", { hour12:false });
+}
+function downloadBackup() {
+  const blob = new Blob([JSON.stringify(snapshot(), null, 2)], { type:"application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `life-os-backup-${iso(new Date())}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+function importBackup(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const incoming = JSON.parse(reader.result);
+      const merged = mergeSnapshot(incoming, snapshot());
+      applySnapshot(merged);
+      queueCloudSync();
+      renderSync();
+    } catch {
+      alert("备份文件无法读取");
+    }
+  };
+  reader.readAsText(file);
+}
+function renderSync() {
+  const session = getCloudSession();
+  const meta = getCloudMeta();
+  const signedIn = Boolean(session?.access_token);
+  const statusText = !cloudConfigured ? "等待云端配置" : signedIn ? (meta.status === "syncing" ? "正在同步" : meta.status === "error" ? "同步异常" : "云同步已连接") : "尚未登录";
+  document.querySelector("#app").innerHTML = `
+    <main class="shell">
+      <header class="topbar">
+        <div><div class="brand-kicker">L ↗ Life OS</div><h1>我的人生操作系统</h1></div>
+        <div class="view-tabs">
+          <button class="view-tab" id="toPlanner">Weekly</button>
+          <button class="view-tab" id="toMonth">Month</button>
+          <button class="view-tab" id="toBuild">Build</button>
+          <button class="view-tab active">Sync</button>
+        </div>
+      </header>
+      <section class="sync-hero">
+        <div class="brand-kicker">DATA SYNC</div>
+        <h2>让记录跟着你，而不是跟着浏览器。</h2>
+        <p>所有修改先保存在当前设备；连接云端后会自动备份，并在其他设备登录后合并历史记录。</p>
+      </section>
+      <section class="sync-grid">
+        <article class="sync-card">
+          <div class="brand-kicker">SYNC STATUS</div>
+          <h3>${statusText}</h3>
+          <p>最近同步：${fmtSyncTime(meta.lastSyncedAt)}</p>
+          ${meta.error ? `<div class="sync-error">${escapeHtml(meta.error)}</div>` : ""}
+          ${!cloudConfigured ? `<div class="sync-callout">同步代码已经就绪，还需要 Supabase Project URL 与 anon public key 才能启用真正的跨设备云同步。</div>` : ""}
+          ${cloudConfigured && !signedIn ? `
+            <form id="syncLoginForm" class="sync-form">
+              <input name="email" type="email" placeholder="邮箱" autocomplete="email" required />
+              <input name="password" type="password" placeholder="密码（至少 6 位）" autocomplete="current-password" minlength="6" required />
+              <div class="sync-actions"><button class="btn primary" name="action" value="login">登录并同步</button><button class="btn" type="button" id="syncSignup">创建账号</button></div>
+            </form>` : ""}
+          ${signedIn ? `<div class="sync-actions"><button class="btn primary" id="syncNow">立即同步</button><button class="btn" id="syncLogout">退出云同步</button></div>` : ""}
+        </article>
+        <article class="sync-card">
+          <div class="brand-kicker">LOCAL BACKUP</div>
+          <h3>手动备份保险</h3>
+          <p>即使云端还没启用，也可以先把当前 Weekly 与 Build 历史导出成一个 JSON 文件。</p>
+          <div class="sync-actions"><button class="btn primary" id="exportBackup">导出备份</button><label class="btn import-label">导入备份<input id="importBackup" type="file" accept="application/json,.json" hidden /></label></div>
+        </article>
+      </section>
+      <section class="sync-card sync-explain">
+        <div class="brand-kicker">HOW IT WORKS</div>
+        <h3>本地优先，云端兜底</h3>
+        <p>记录时不会等待网络；先写入手机本地，再自动上传云端。新设备登录时会先合并本地与云端数据，再写回云端，避免第一次同步把旧历史覆盖。</p>
+      </section>
+    </main>`;
+  document.querySelector("#toPlanner").onclick=()=>{currentView="planner";render();};
+  document.querySelector("#toMonth").onclick=()=>{currentView="month";renderMonth();};
+  document.querySelector("#toBuild").onclick=()=>{currentView="build";renderBuild();};
+  document.querySelector("#exportBackup").onclick=downloadBackup;
+  document.querySelector("#importBackup").onchange=e=>{if(e.target.files?.[0]) importBackup(e.target.files[0]);};
+  if (cloudConfigured && !signedIn) {
+    const form=document.querySelector("#syncLoginForm");
+    form.onsubmit=async e=>{
+      e.preventDefault();
+      const fd=new FormData(form);
+      try { await signIn(fd.get("email"),fd.get("password")); await syncNow(); renderSync(); }
+      catch(err) { alert(`登录失败：${err.message}`); }
+    };
+    document.querySelector("#syncSignup").onclick=async()=>{
+      const fd=new FormData(form);
+      const email=String(fd.get("email")||"").trim(), password=String(fd.get("password")||"");
+      if (!email || password.length<6) return alert("先填写邮箱和至少 6 位密码");
+      try {
+        const result=await signUp(email,password);
+        alert(result?.access_token ? "账号已创建并登录" : "账号已创建，请按邮箱提示完成验证后再登录");
+        if (result?.access_token) { await syncNow(); renderSync(); }
+      } catch(err) { alert(`创建失败：${err.message}`); }
+    };
+  }
+  if (signedIn) {
+    document.querySelector("#syncNow").onclick=async()=>{try{await syncNow();renderSync();}catch(err){alert(`同步失败：${err.message}`);}};
+    document.querySelector("#syncLogout").onclick=()=>{signOut();renderSync();};
+  }
+}
+
 function render() {
   const todayISO = iso(new Date());
   const isCurrentWeek = state.weekStart === currentWeekStart();
@@ -412,7 +594,7 @@ function render() {
             <button class="view-tab" id="toMonth">Month</button>
             <button class="view-tab" id="toBuild">Build</button>
           </div>
-          <div class="local-note">进度保存在此浏览器</div>
+          <div class="local-note">本地即时保存 · 云同步可用后自动备份</div>
         </div>
       </header>
 
