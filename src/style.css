@@ -140,3 +140,34 @@ h1 { margin:4px 0 0; font-size:28px; line-height:1.15; font-weight:680; }
   .chart-week { min-width:100%; }
   .chart-heading { flex-direction:column; gap:4px; }
 }
+
+.month-hero { padding:42px 0 28px; border-bottom:1px solid #c9c1b3; }
+.month-hero h2 { font-family:Georgia,"Songti SC",serif; font-size:48px; font-weight:500; margin:8px 0 14px; }
+.month-theme { font-size:20px; line-height:1.6; max-width:760px; margin:0 0 12px; }
+.month-principle { color:#746e64; line-height:1.7; max-width:820px; margin:0; }
+.month-outcomes { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; padding:28px 0; }
+.outcome-card,.month-panel { border:1px solid #cec5b8; border-radius:20px; background:#fbf8f1; padding:20px; }
+.outcome-no { font-family:Georgia,serif; font-size:28px; color:#aaa194; margin-bottom:18px; }
+.outcome-card h3 { margin:12px 0 8px; font-size:19px; }
+.outcome-card p,.month-panel p { color:#746e64; line-height:1.6; margin:0; font-size:13px; }
+.month-grid { display:grid; grid-template-columns:1.35fr .65fr; gap:12px; margin-bottom:12px; }
+.month-panel h3 { font-size:28px; margin:7px 0 4px; }
+.module-bars { margin-top:22px; display:grid; gap:12px; }
+.module-bar-row { display:grid; grid-template-columns:100px 1fr 90px; gap:10px; align-items:center; font-size:11px; }
+.module-bar-row strong { text-align:right; font-weight:600; }
+.module-bar-track,.month-progress { height:7px; background:#e2dbcf; border-radius:999px; overflow:hidden; }
+.module-bar-fill,.month-progress div { height:100%; background:#38352f; border-radius:999px; }
+.month-progress { margin:22px 0 16px; height:9px; }
+.month-note { color:#746e64; font-size:12px; line-height:1.6; }
+.week-focus { display:grid; grid-template-columns:.55fr 1.45fr; gap:24px; margin-top:12px; }
+.week-focus h3 { margin:6px 0; }
+.focus-list { display:grid; gap:8px; }
+.focus-item { padding:12px 0; border-bottom:1px solid #e2dbcf; display:grid; grid-template-columns:auto 1fr; gap:6px 10px; align-items:center; }
+.focus-item:last-child { border-bottom:0; }
+.focus-item strong { font-size:13px; }
+.focus-item small { grid-column:2; color:#817a70; line-height:1.4; }
+@media (max-width:700px) {
+  .month-hero h2 { font-size:38px; }
+  .month-outcomes,.month-grid,.week-focus { grid-template-columns:1fr; }
+  .module-bar-row { grid-template-columns:86px 1fr 72px; }
+}
