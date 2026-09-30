@@ -1,0 +1,12 @@
+{
+  "month": "2026-10",
+  "label": "2026.10",
+  "title": "Transition Month",
+  "theme": "从“被工作安排时间”，切换到“自己运行自己的生活”。",
+  "principle": "10 月不追求把每天塞满，而是验证 Life OS 能不能让我在没有固定工作节奏后，依然持续 Build。",
+  "outcomes": [
+    {"module":"Career OS","title":"职业重新启动","detail":"完成可投递简历 + AI 数据项目样例 + 启动真实投递"},
+    {"module":"Health OS","title":"恢复身体节奏","detail":"重新建立睡眠、活动和精力节奏，不追求激进减重"},
+    {"module":"Inner OS","title":"让 Life OS 真正运行","detail":"持续记录 Build，完成 4 次周复盘 + 1 次月复盘"}
+  ]
+}
