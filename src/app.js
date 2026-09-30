@@ -154,6 +154,22 @@ function renderCurrentView() {
   else render();
 }
 
+function navHtml(active) {
+  const items = [
+    ["planner", "Weekly"],
+    ["month", "Month"],
+    ["build", "Build"],
+    ["sync", "Sync"],
+  ];
+  return `<div class="view-tabs">${items.map(([key,label])=>`<button class="view-tab ${active===key?"active":""}" data-nav="${key}">${label}</button>`).join("")}</div>`;
+}
+function bindNavigation() {
+  document.querySelectorAll("[data-nav]").forEach(el=>el.onclick=()=>{
+    currentView = el.dataset.nav;
+    renderCurrentView();
+  });
+}
+
 function d(iso) { return new Date(`${iso}T00:00:00`); }
 function iso(date) {
   return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
@@ -322,11 +338,7 @@ function renderBuild() {
     <main class="shell">
       <header class="topbar">
         <div><div class="brand-kicker">L ↗ Life OS</div><h1>我的人生操作系统</h1></div>
-        <div class="view-tabs">
-          <button class="view-tab" id="toPlanner">Weekly</button>
-          <button class="view-tab" id="toMonth">Month</button>
-          <button class="view-tab active">Build</button>\n          <button class="view-tab" id="toSync">Sync</button>
-        </div>
+        ${navHtml("build")}
       </header>
 
       <section class="build-hero">
@@ -381,8 +393,7 @@ function renderBuild() {
       </section>
     </main>
   `;
-  document.querySelector("#toPlanner").onclick=()=>{currentView="planner"; render();};
-  document.querySelector("#toMonth").onclick=()=>{currentView="month"; renderMonth();};
+  bindNavigation();
   document.querySelector("#buildForm").onsubmit=(e)=>{
     e.preventDefault();
     const fd=new FormData(e.currentTarget);
@@ -420,11 +431,7 @@ function renderMonth() {
     <main class="shell">
       <header class="topbar">
         <div><div class="brand-kicker">L ↗ Life OS</div><h1>我的人生操作系统</h1></div>
-        <div class="view-tabs">
-          <button class="view-tab" id="toPlanner">Weekly</button>
-          <button class="view-tab active">Month</button>
-          <button class="view-tab" id="toBuild">Build</button>
-        </div>
+        ${navHtml("month")}
       </header>
       <section class="month-hero">
         <div class="brand-kicker">MONTHLY OPERATING PAGE · ${monthPlan.label}</div>
@@ -463,8 +470,7 @@ function renderMonth() {
       </section>
       <div class="footer">这个月不是填满时间，而是重新拿回时间的使用权。</div>
     </main>`;
-  document.querySelector("#toPlanner").onclick=()=>{currentView="planner";render();};
-  document.querySelector("#toBuild").onclick=()=>{currentView="build";renderBuild();};
+  bindNavigation();
 }
 
 
@@ -506,12 +512,7 @@ function renderSync() {
     <main class="shell">
       <header class="topbar">
         <div><div class="brand-kicker">L ↗ Life OS</div><h1>我的人生操作系统</h1></div>
-        <div class="view-tabs">
-          <button class="view-tab" id="toPlanner">Weekly</button>
-          <button class="view-tab" id="toMonth">Month</button>
-          <button class="view-tab" id="toBuild">Build</button>
-          <button class="view-tab active">Sync</button>
-        </div>
+        ${navHtml("sync")}
       </header>
       <section class="sync-hero">
         <div class="brand-kicker">DATA SYNC</div>
@@ -546,9 +547,7 @@ function renderSync() {
         <p>记录时不会等待网络；先写入手机本地，再自动上传云端。新设备登录时会先合并本地与云端数据，再写回云端，避免第一次同步把旧历史覆盖。</p>
       </section>
     </main>`;
-  document.querySelector("#toPlanner").onclick=()=>{currentView="planner";render();};
-  document.querySelector("#toMonth").onclick=()=>{currentView="month";renderMonth();};
-  document.querySelector("#toBuild").onclick=()=>{currentView="build";renderBuild();};
+  bindNavigation();
   document.querySelector("#exportBackup").onclick=downloadBackup;
   document.querySelector("#importBackup").onchange=e=>{if(e.target.files?.[0]) importBackup(e.target.files[0]);};
   if (cloudConfigured && !signedIn) {
@@ -589,11 +588,7 @@ function render() {
       <header class="topbar">
         <div><div class="brand-kicker">L ↗ Life OS</div><h1>我的人生操作系统</h1></div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-          <div class="view-tabs">
-            <button class="view-tab active">Weekly</button>
-            <button class="view-tab" id="toMonth">Month</button>
-            <button class="view-tab" id="toBuild">Build</button>
-          </div>
+          ${navHtml("planner")}
           <div class="local-note">本地即时保存 · 云同步可用后自动备份</div>
         </div>
       </header>
@@ -666,6 +661,7 @@ function render() {
       </section>
     </main>
   `;
+  bindNavigation();
   document.querySelectorAll("[data-check]").forEach(el=>el.onclick=()=>{
     state.tasks=state.tasks.map(t=>t.id===el.dataset.check?{...t,done:!t.done}:t); save(state); render();
   });
@@ -675,7 +671,6 @@ function render() {
   document.querySelector("#prevWeek").onclick=()=>{state.weekStart=addDays(state.weekStart,-7); save(state); render();};
   document.querySelector("#nextWeek").onclick=()=>{state.weekStart=addDays(state.weekStart,7); save(state); render();};
   document.querySelector("#thisWeek").onclick=()=>{state.weekStart=currentWeekStart(); addCurrentPlan(state); save(state); render();};
-  document.querySelector("#toMonth").onclick=()=>{currentView="month"; renderMonth();};
-  document.querySelector("#toBuild").onclick=()=>{currentView="build"; renderBuild();};
 }
 render();
+initializeCloudSync();
