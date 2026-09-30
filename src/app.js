@@ -15,7 +15,7 @@ const MODULES = [
 
 const STORE_KEY = "life-os-weekly-planner-v1";
 const BUILD_KEY = "life-os-build-v1";
-let currentView = "planner";
+let currentView = "day";
 let statsRange = "day";
 let statsModule = "all";
 let cloudSyncReady = false;
@@ -148,7 +148,8 @@ async function initializeCloudSync() {
   } catch {}
 }
 function renderCurrentView() {
-  if (currentView === "build") renderBuild();
+  if (currentView === "day") renderDay();
+  else if (currentView === "build") renderBuild();
   else if (currentView === "month") renderMonth();
   else if (currentView === "sync") renderSync();
   else render();
@@ -156,6 +157,7 @@ function renderCurrentView() {
 
 function navHtml(active) {
   const items = [
+    ["day", "Day"],
     ["planner", "Weekly"],
     ["month", "Month"],
     ["build", "Build"],
@@ -205,7 +207,7 @@ function openEditor(task={}, date=weekDates(state.weekStart)[0]) {
   const modal=document.querySelector("#modal");
   modal.querySelector("#cancelModal").onclick=()=>modal.remove();
   if (editing) modal.querySelector("#deleteTask").onclick=()=>{
-    state.tasks=state.tasks.filter(x=>x.id!==task.id); save(state); modal.remove(); render();
+    state.tasks=state.tasks.filter(x=>x.id!==task.id); save(state); modal.remove(); renderCurrentView();
   };
   modal.querySelector("#taskForm").onsubmit=(e)=>{
     e.preventDefault();
@@ -220,7 +222,7 @@ function openEditor(task={}, date=weekDates(state.weekStart)[0]) {
     };
     if (editing) state.tasks=state.tasks.map(x=>x.id===task.id?next:x);
     else state.tasks.push(next);
-    save(state); modal.remove(); render();
+    save(state); modal.remove(); renderCurrentView();
   };
 }
 function escapeHtml(s) {
@@ -326,6 +328,130 @@ function durationChart(items, range) {
     </div></div>
   </div>`;
 }
+
+function renderDay() {
+  const today = iso(new Date());
+  const todayDate = d(today);
+  const tasks = state.tasks.filter(t=>t.date===today);
+  const doneTasks = tasks.filter(t=>t.done);
+  const openTasks = tasks.filter(t=>!t.done);
+  const todayBuild = buildItems
+    .filter(x=>String(x.at || "").slice(0,10)===today)
+    .sort((a,b)=>new Date(b.at)-new Date(a.at));
+  const totalMinutes = todayBuild.reduce((sum,x)=>sum+durationMinutes(x),0);
+  const moduleMinutes = MODULES.map(([name,sub])=>({
+    name, sub,
+    minutes: todayBuild.filter(x=>x.module===name).reduce((sum,x)=>sum+durationMinutes(x),0)
+  })).filter(x=>x.minutes>0);
+  const maxModule = Math.max(...moduleMinutes.map(x=>x.minutes),1);
+  const dailyNotes = state.dailyNotes || {};
+  const note = dailyNotes[today] || "";
+
+  document.querySelector("#app").innerHTML = `
+    <main class="shell">
+      <header class="topbar">
+        <div><div class="brand-kicker">L ↗ Life OS</div><h1>我的人生操作系统</h1></div>
+        ${navHtml("day")}
+      </header>
+
+      <section class="day-hero">
+        <div>
+          <div class="brand-kicker">TODAY · ${today}</div>
+          <h2>${String(todayDate.getMonth()+1).padStart(2,"0")} 月 ${String(todayDate.getDate()).padStart(2,"0")} 日 · ${weekday[todayDate.getDay()]}</h2>
+          <p>今天不用解决所有问题，只推进最重要的几件事。</p>
+        </div>
+        <div class="day-score">
+          <strong>${doneTasks.length} / ${tasks.length}</strong>
+          <span>今日任务完成</span>
+        </div>
+      </section>
+
+      <section class="day-layout">
+        <article class="day-panel">
+          <div class="day-panel-head">
+            <div><div class="brand-kicker">TODAY'S FOCUS</div><h3>今天要推进的事</h3></div>
+            <button class="btn" id="addTodayTask">＋ 添加</button>
+          </div>
+          <div class="day-focus-list">
+            ${tasks.length ? tasks.map(t=>`
+              <div class="day-focus-item ${t.done?"done":""}">
+                <button class="check ${t.done?"done":""}" data-day-check="${t.id}" aria-label="完成">${t.done?"✓":""}</button>
+                <div class="day-focus-copy">
+                  <strong>${escapeHtml(t.title)}</strong>
+                  ${t.note?`<small>${escapeHtml(t.note)}</small>`:""}
+                  <span class="badge">${t.module}</span>
+                </div>
+                <button class="edit" data-day-edit="${t.id}">编辑</button>
+              </div>
+            `).join("") : `<div class="day-empty">今天还没有安排。可以从 Weekly 里挑 1–3 件真正值得推进的事。</div>`}
+          </div>
+        </article>
+
+        <article class="day-panel day-build-summary">
+          <div class="brand-kicker">BUILD TODAY</div>
+          <h3>${fmtDuration(totalMinutes)}</h3>
+          <p>${todayBuild.length} 条记录 · 今天真实发生的投入</p>
+          <div class="day-module-bars">
+            ${moduleMinutes.length ? moduleMinutes.map(x=>`
+              <div class="day-module-row">
+                <span>${x.name}</span>
+                <div class="module-bar-track"><div class="module-bar-fill" style="width:${Math.max(7,x.minutes/maxModule*100)}%"></div></div>
+                <strong>${fmtDuration(x.minutes)}</strong>
+              </div>
+            `).join("") : `<div class="day-empty compact">今天还没有 Build 记录。</div>`}
+          </div>
+          <button class="btn primary" data-jump-build>记录一条 Build</button>
+        </article>
+      </section>
+
+      <section class="day-panel day-build-list">
+        <div class="day-panel-head">
+          <div><div class="brand-kicker">WHAT ACTUALLY HAPPENED</div><h3>今天已经做过的事</h3></div>
+        </div>
+        ${todayBuild.length ? todayBuild.map(x=>`
+          <div class="day-build-item">
+            <div>
+              <strong>${escapeHtml(x.content)}</strong>
+              <small>${fmtBuildTime(x.at)} · ${fmtDuration(durationMinutes(x))}</small>
+            </div>
+            <span class="badge">${x.module || "未分类"}</span>
+          </div>
+        `).join("") : `<div class="day-empty">做完一件值得留下的事，再回来记 Build。</div>`}
+      </section>
+
+      <section class="day-panel day-note">
+        <div class="brand-kicker">ONE LINE FOR TODAY</div>
+        <h3>今天过得怎么样？</h3>
+        <textarea id="dailyNote" maxlength="280" placeholder="留一句就够了。">${escapeHtml(note)}</textarea>
+        <div class="day-note-foot"><span id="noteStatus">自动保存到 Life OS</span><span>${note.length}/280</span></div>
+      </section>
+    </main>`;
+
+  bindNavigation();
+  document.querySelectorAll("[data-day-check]").forEach(el=>el.onclick=()=>{
+    state.tasks=state.tasks.map(t=>t.id===el.dataset.dayCheck?{...t,done:!t.done}:t);
+    save(state);
+    renderDay();
+  });
+  document.querySelectorAll("[data-day-edit]").forEach(el=>el.onclick=()=>openEditor(state.tasks.find(t=>t.id===el.dataset.dayEdit), today));
+  document.querySelector("#addTodayTask").onclick=()=>openEditor({}, today);
+  document.querySelector("[data-jump-build]").onclick=()=>{currentView="build"; renderBuild();};
+
+  const noteEl=document.querySelector("#dailyNote");
+  let noteTimer=null;
+  noteEl.oninput=()=>{
+    const value=noteEl.value;
+    document.querySelector(".day-note-foot span:last-child").textContent=`${value.length}/280`;
+    document.querySelector("#noteStatus").textContent="保存中…";
+    clearTimeout(noteTimer);
+    noteTimer=setTimeout(()=>{
+      state.dailyNotes={...(state.dailyNotes||{}),[today]:value};
+      save(state);
+      document.querySelector("#noteStatus").textContent="已保存 · 会随云同步备份";
+    },450);
+  };
+}
+
 function renderBuild() {
   const filtered = buildItems.filter(x=>inRange(x, statsRange) && (statsModule === "all" || x.module === statsModule)).sort((a,b)=>new Date(b.at)-new Date(a.at));
   const byDate = {};
@@ -672,5 +798,5 @@ function render() {
   document.querySelector("#nextWeek").onclick=()=>{state.weekStart=addDays(state.weekStart,7); save(state); render();};
   document.querySelector("#thisWeek").onclick=()=>{state.weekStart=currentWeekStart(); addCurrentPlan(state); save(state); render();};
 }
-render();
+renderDay();
 initializeCloudSync();
