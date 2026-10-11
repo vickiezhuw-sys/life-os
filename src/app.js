@@ -36,7 +36,7 @@ function saveBuild(items) {
 let buildItems = loadBuild();
 const PLAN_WEEK_START = "2026-09-21";
 const MONTH_PLAN_VERSION = "2026-09-26-october-v1";
-const RESUME_SPRINT_VERSION = "2026-10-11-resume-sprint-v4";
+const RESUME_SPRINT_VERSION = "2026-10-11-resume-sprint-v5";
 function currentWeekStart() {
   const today = new Date();
   today.setDate(today.getDate() - (today.getDay()+6)%7);
@@ -67,14 +67,22 @@ function addMonthlyPlan(state) {
   state.monthlyPlanVersion = MONTH_PLAN_VERSION;
   return state;
 }
+const CLOSED_RESUME_TASKS = new Set(["核对并修正两版简历工作时间","优化数据分析师主简历","压缩投放版描述并突出策略归因","核实简历成果数据与AI效率指标","确认两版最终投递简历"]);
+function reconcileConfirmedProgress(planner) {
+  planner.tasks = (planner.tasks || []).filter(t => !CLOSED_RESUME_TASKS.has(t.title));
+  const titles = new Set(resumeSprint.filter(t => t.done === true).map(t => t.date + "|" + t.title));
+  planner.tasks = planner.tasks.map(t => titles.has(t.date + "|" + t.title) ? {...t, done:true} : t);
+  return planner;
+}
 function addResumeSprint(state) {
   if (state.resumeSprintVersion === RESUME_SPRINT_VERSION) return state;
   const existing = new Set(state.tasks.map(t => `${t.date}|${t.title}`));
   for (const task of resumeSprint) {
     if (!existing.has(`${task.date}|${task.title}`)) {
-      state.tasks.push({...task, id:id(), done:false});
+      state.tasks.push({...task, id:id(), done:Boolean(task.done)});
     }
   }
+  reconcileConfirmedProgress(state);
   state.resumeSprintVersion = RESUME_SPRINT_VERSION;
   return state;
 }
@@ -99,7 +107,7 @@ function dedupeTasks(tasks = []) {
   return [...byKey.values()];
 }
 function normalizePlanner(planner) {
-  return {...planner, tasks: dedupeTasks(planner.tasks || [])};
+  return reconcileConfirmedProgress({...planner, tasks: dedupeTasks(planner.tasks || [])});
 }
 function load() {
   try {
@@ -151,6 +159,7 @@ function mergeSnapshot(cloudPayload = {}, localPayload = snapshot()) {
       ...(localPlanner.tasks || [])
     ])
   };
+  reconcileConfirmedProgress(planner);
   const builds = mergeByKey(
     cloudPayload.buildItems || [],
     localPayload.buildItems || [],
