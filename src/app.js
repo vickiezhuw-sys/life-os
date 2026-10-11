@@ -33,7 +33,20 @@ function saveBuild(items) {
   localStorage.setItem(BUILD_KEY, JSON.stringify(items));
   if (cloudSyncReady) queueCloudSync();
 }
-let buildItems = loadBuild();
+// User-confirmed continuous work session. Fixed ID prevents double counting after reload/cloud merge.
+const VERIFIED_BUILD_SEEDS = [{
+  id: "project35-20261011-1258-1527",
+  content: "Project 35连续共创：复盘、简历结项、岗位投递规划、贷款核对、AI访谈、Agent池设计、Life OS执行记录（用户确认无其他活动，12:58–15:27）",
+  at: "2026-10-11T12:58",
+  duration: 149,
+  module: "Career OS"
+}];
+function addVerifiedBuildSeeds(items) {
+  const existing = new Set(items.map(x => x.id));
+  return [...VERIFIED_BUILD_SEEDS.filter(x => !existing.has(x.id)), ...items];
+}
+let buildItems = addVerifiedBuildSeeds(loadBuild());
+localStorage.setItem(BUILD_KEY, JSON.stringify(buildItems));
 const PLAN_WEEK_START = "2026-09-21";
 const MONTH_PLAN_VERSION = "2026-09-26-october-v1";
 const RESUME_SPRINT_VERSION = "2026-10-11-resume-sprint-v7";
@@ -160,17 +173,17 @@ function mergeSnapshot(cloudPayload = {}, localPayload = snapshot()) {
     ])
   };
   reconcileConfirmedProgress(planner);
-  const builds = mergeByKey(
+  const builds = addVerifiedBuildSeeds(mergeByKey(
     cloudPayload.buildItems || [],
     localPayload.buildItems || [],
     item => item.id || `${item.at || ""}|${item.content || ""}`
-  );
+  ));
   return { version: 1, planner, buildItems: builds, savedAt: new Date().toISOString() };
 }
 function applySnapshot(payload) {
   if (!payload) return;
   if (payload.planner?.tasks) state = normalizePlanner(payload.planner);
-  if (Array.isArray(payload.buildItems)) buildItems = payload.buildItems;
+  if (Array.isArray(payload.buildItems)) buildItems = addVerifiedBuildSeeds(payload.buildItems);
   localStorage.setItem(STORE_KEY, JSON.stringify(state));
   localStorage.setItem(BUILD_KEY, JSON.stringify(buildItems));
 }
