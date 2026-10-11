@@ -36,7 +36,7 @@ function saveBuild(items) {
 let buildItems = loadBuild();
 const PLAN_WEEK_START = "2026-09-21";
 const MONTH_PLAN_VERSION = "2026-09-26-october-v1";
-const RESUME_SPRINT_VERSION = "2026-10-11-resume-sprint-v3";
+const RESUME_SPRINT_VERSION = "2026-10-11-resume-sprint-v4";
 function currentWeekStart() {
   const today = new Date();
   today.setDate(today.getDate() - (today.getDay()+6)%7);
