@@ -3,6 +3,7 @@ import baseline from "./baseline-data.json";
 import currentWeekPlan from "./current-week-data.json";
 import sepOctPlan from "./sep-oct-plan.json";
 import monthPlan from "./month-plan.json";
+import resumeSprint from "./sprint-01-resume-plan.json";
 import { cloudConfigured, getCloudSession, getCloudMeta, signIn, signUp, signOut, pullCloudSnapshot, pushCloudSnapshot } from "./sync.js";
 
 const MODULES = [
@@ -35,6 +36,7 @@ function saveBuild(items) {
 let buildItems = loadBuild();
 const PLAN_WEEK_START = "2026-09-21";
 const MONTH_PLAN_VERSION = "2026-09-26-october-v1";
+const RESUME_SPRINT_VERSION = "2026-10-11-resume-sprint-v1";
 function currentWeekStart() {
   const today = new Date();
   today.setDate(today.getDate() - (today.getDay()+6)%7);
@@ -65,6 +67,17 @@ function addMonthlyPlan(state) {
   state.monthlyPlanVersion = MONTH_PLAN_VERSION;
   return state;
 }
+function addResumeSprint(state) {
+  if (state.resumeSprintVersion === RESUME_SPRINT_VERSION) return state;
+  const existing = new Set(state.tasks.map(t => `${t.date}|${t.title}`));
+  for (const task of resumeSprint) {
+    if (!existing.has(`${task.date}|${task.title}`)) {
+      state.tasks.push({...task, id:id(), done:false});
+    }
+  }
+  state.resumeSprintVersion = RESUME_SPRINT_VERSION;
+  return state;
+}
 function load() {
   try {
     const v = JSON.parse(localStorage.getItem(STORE_KEY));
@@ -72,11 +85,12 @@ function load() {
       v.weekStart = currentWeekStart();
       addCurrentPlan(v);
       addMonthlyPlan(v);
+      addResumeSprint(v);
       save(v);
       return v;
     }
   } catch {}
-  const v = addMonthlyPlan(addCurrentPlan({ weekStart: currentWeekStart(), tasks: seed() }));
+  const v = addResumeSprint(addMonthlyPlan(addCurrentPlan({ weekStart: currentWeekStart(), tasks: seed() })));
   save(v);
   return v;
 }
