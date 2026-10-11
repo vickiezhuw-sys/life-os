@@ -78,6 +78,29 @@ function addResumeSprint(state) {
   state.resumeSprintVersion = RESUME_SPRINT_VERSION;
   return state;
 }
+// Deduplicate planner tasks by their semantic identity, not generated UUIDs.
+// Preserve completion if any copy was completed and retain informative notes.
+function dedupeTasks(tasks = []) {
+  const byKey = new Map();
+  for (const task of tasks) {
+    if (!task || !task.date || !task.title) continue;
+    const key = [task.date, task.module || "", task.title.trim().replace(/\s+/g, " ")].join("|");
+    if (!byKey.has(key)) {
+      byKey.set(key, {...task});
+      continue;
+    }
+    const prior = byKey.get(key);
+    byKey.set(key, {
+      ...prior,
+      done: Boolean(prior.done || task.done),
+      note: (task.note || "").length > (prior.note || "").length ? task.note : prior.note
+    });
+  }
+  return [...byKey.values()];
+}
+function normalizePlanner(planner) {
+  return {...planner, tasks: dedupeTasks(planner.tasks || [])};
+}
 function load() {
   try {
     const v = JSON.parse(localStorage.getItem(STORE_KEY));
@@ -86,15 +109,18 @@ function load() {
       addCurrentPlan(v);
       addMonthlyPlan(v);
       addResumeSprint(v);
+      v.tasks = dedupeTasks(v.tasks);
       save(v);
       return v;
     }
   } catch {}
   const v = addResumeSprint(addMonthlyPlan(addCurrentPlan({ weekStart: currentWeekStart(), tasks: seed() })));
+  v.tasks = dedupeTasks(v.tasks);
   save(v);
   return v;
 }
 function save(state) {
+  state.tasks = dedupeTasks(state.tasks);
   localStorage.setItem(STORE_KEY, JSON.stringify(state));
   if (cloudSyncReady) queueCloudSync();
 }
@@ -120,11 +146,10 @@ function mergeSnapshot(cloudPayload = {}, localPayload = snapshot()) {
   const planner = {
     ...cloudPlanner,
     ...localPlanner,
-    tasks: mergeByKey(
-      cloudPlanner.tasks || [],
-      localPlanner.tasks || [],
-      item => item.id || `${item.date || ""}|${item.title || ""}`
-    )
+    tasks: dedupeTasks([
+      ...(cloudPlanner.tasks || []),
+      ...(localPlanner.tasks || [])
+    ])
   };
   const builds = mergeByKey(
     cloudPayload.buildItems || [],
@@ -135,7 +160,7 @@ function mergeSnapshot(cloudPayload = {}, localPayload = snapshot()) {
 }
 function applySnapshot(payload) {
   if (!payload) return;
-  if (payload.planner?.tasks) state = payload.planner;
+  if (payload.planner?.tasks) state = normalizePlanner(payload.planner);
   if (Array.isArray(payload.buildItems)) buildItems = payload.buildItems;
   localStorage.setItem(STORE_KEY, JSON.stringify(state));
   localStorage.setItem(BUILD_KEY, JSON.stringify(buildItems));
