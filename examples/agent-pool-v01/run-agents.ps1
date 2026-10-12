@@ -6,7 +6,8 @@ No key is written to disk or printed. No Python or proxy library required.
 param(
     [string]$Topic = "验证中小App和跨境电商对广告投放数据自动化服务的真实付费需求",
     [switch]$Execute,
-    [switch]$DeepSeekOnly
+    [switch]$DeepSeekOnly,
+    [switch]$Resume
 )
 
 $ErrorActionPreference = "Stop"
@@ -53,6 +54,10 @@ function Save-Report([string]$FileName, [string]$State) {
     return $target
 }
 
+if ($Resume -and -not $Execute) {
+    throw "-Resume 必须与 -Execute 一起使用（会调用未完成阶段的模型API）。"
+}
+
 if (-not $Execute) {
     foreach ($step in $Stages) {
         $Script:Sections += "## $($step.Name) ($($step.Provider))`r`n`r`n计划：$($step.Task)"
@@ -67,7 +72,40 @@ if (-not $env:DEEPSEEK_API_KEY -or ((-not $DeepSeekOnly) -and (-not $env:ZHIPU_A
     exit 1
 }
 
-foreach ($step in $Stages) {
+# Load completed phases from prior checkpoint, so already-finished API calls are not repeated.
+if ($Resume) {
+    $checkpoint = Join-Path $Root "report.partial.md"
+    if (-not (Test-Path $checkpoint)) {
+        throw "找不到 report.partial.md；不能恢复，请先确认当前脚本所在目录。"
+    }
+    $previous = [System.IO.File]::ReadAllText($checkpoint, [System.Text.Encoding]::UTF8)
+    if (-not $previous.Contains("目标：$Topic")) {
+        throw "checkpoint任务与当前Topic不一致，停止以防误用旧结果。"
+    }
+    $hits = [regex]::Matches($previous, '(?m)^## (Research|Analyst|Reviewer) \((Zhipu|DeepSeek)\)')
+    if ($hits.Count -eq 0 -or $hits.Count -ge $Stages.Count) {
+        throw "checkpoint没有可恢复的阶段，或已经全部完成。"
+    }
+    for ($i = 0; $i -lt $hits.Count; $i++) {
+        $match = $hits[$i]
+        $expected = $Stages[$i]
+        if ($match.Groups[1].Value -ne $expected.Name -or $match.Groups[2].Value -ne $expected.Provider) {
+            throw "checkpoint中的步骤或厂商与脚本不一致，停止以免误用。"
+        }
+        $end = if ($i + 1 -lt $hits.Count) { $hits[$i + 1].Index } else { $previous.Length }
+        $section = $previous.Substring($match.Index, $end - $match.Index).Trim()
+        if ($section.Length -lt 30) { throw "checkpoint内容不完整，停止恢复。" }
+        $Script:Sections += $section
+    }
+    Write-Host "恢复成功：已读入 $($Script:Sections.Count) 个完成阶段，本次不会重复调用。"
+}
+
+for ($stepIndex = 0; $stepIndex -lt $Stages.Count; $stepIndex++) {
+    $step = $Stages[$stepIndex]
+    if ($stepIndex -lt $Script:Sections.Count) {
+        Write-Host "跳过已完成的阶段：$($step.Name) ($($step.Provider))"
+        continue
+    }
     Write-Host "正在运行 $($step.Name) ($($step.Provider))..."
     $key = [Environment]::GetEnvironmentVariable($step.KeyName)
     $messages = @(
