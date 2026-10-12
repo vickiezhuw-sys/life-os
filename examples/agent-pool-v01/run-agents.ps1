@@ -1,4 +1,4 @@
-<#
+﻿<#
 Life OS Agent Pool v0.1 - Windows PowerShell 5.1 compatible.
 Default: dry-run only. -Execute: three paid API requests (Zhipu, DeepSeek, Zhipu).
 No key is written to disk or printed. No Python or proxy library required.
