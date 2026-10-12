@@ -67,3 +67,25 @@ Unblock-File .\run-agents.ps1
 上述仅模拟运行、**不产生API费用**。确认 DeepSeek API Key 在当前终端、已有可用额度并批准运行后才执行 ` .\run-agents.ps1 -DeepSeekOnly -Execute `，会产生最多三次模型API调用。报告在当前目录。脚本已提交，但尚未通过用户Windows实际验收。
 
 智谱GLM账户可用额度尚不明，用户决定暂时停止智谱相关充值与排障；以后恢复时再切换双厂商模式。
+
+## 鉴权问题与恢复运行
+
+DeepSeek请求返回401时，先核对`DEEPSEEK_API_KEY` 是否确实来自DeepSeek开放平台。**不要输出或分享密钥**。可用免费余额查询GET接口核实当前密钥是否有效：
+
+```powershell
+$headers = @{ Authorization = "Bearer $env:DEEPSEEK_API_KEY" }
+try {
+    $balance = Invoke-RestMethod -Method Get -Uri "https://api.deepseek.com/user/balance" -Headers $headers -TimeoutSec 25
+    Write-Host "认证成功；API余额可用状态：" $balance.is_available
+} catch {
+    Write-Host "认证检查失败：" $_.Exception.Message
+}
+```
+
+如果之前Research (Zhipu)已经成功而Analyst (DeepSeek)失败，脚本保存的 `report.partial.md` 不要删除。**重新下载最新版本** `run-agents.ps1` 后，在脚本相同目录执行：
+
+```powershell
+.\run-agents.ps1 -Resume -Execute
+```
+
+脚本会先读取并验证本地已完成阶段，从未完成的Analyst继续；涉及新的模型调用和可能费用。确保任务Topic与检查点一致，不要加 `-DeepSeekOnly`，以免厂商与检查点不匹配。此前的成功阶段不会重跑。
