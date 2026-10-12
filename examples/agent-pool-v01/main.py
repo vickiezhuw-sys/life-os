@@ -6,8 +6,8 @@ from pathlib import Path
 from openai import OpenAI
 
 PROVIDERS = {
-    "deepseek": ("DEEPSEEK_API_KEY", "https://api.deepseek.com", "DEEPSEEK_MODEL", "deepseek-v4-flash"),
-    "zhipu": ("ZHIPU_API_KEY", "https://open.bigmodel.cn/api/paas/v4", "ZHIPU_MODEL", "glm-4-flash"),
+    "deepseek": ("DEEPSEEK_API_KEY", "https://api.deepseek.com", "DEEPSEEK_MODEL", "deepseek-flash"),
+    "zhipu": ("ZHIPU_API_KEY", "https://open.bigmodel.cn/api/paas/v4", "ZHIPU_MODEL", "glm-5.3-flash"),
 }
 STEPS = (
     ("Research", "zhipu", "列出潜在客户群体、关键痛点、验证渠道与需要搜集的外部证据。所有未核实陈述标注为假设。"),
