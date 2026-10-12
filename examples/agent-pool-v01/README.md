@@ -29,3 +29,25 @@ $env:ZHIPU_MODEL = 'glm-5.3-flash'
 - API使用可能计费，请在两家平台查看计费和用量。
 - 如果出现超时，请记录失败步骤和错误类型；不要盲目反复重跑整个流程。
 - 如果密钥此前被发到聊天或公开位置，应立即撤销并更换。
+
+## Windows PowerShell 5.1：推荐的直接 REST 运行方式
+
+由于已有本机结果显示 PowerShell 的 Invoke-RestMethod 能成功连接智谱和DeepSeek，而 Python SDK的网络层持续 ReadTimeout，优先使用同目录下的 [run-agents.ps1](run-agents.ps1)，不需要Python或 .venv。
+
+在 PowerShell 打开项目目录后：
+
+```powershell
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/vickiezhuw-sys/life-os/main/examples/agent-pool-v01/run-agents.ps1" -OutFile ".\run-agents.ps1"
+Unblock-File .\run-agents.ps1
+.\run-agents.ps1
+```
+
+预演成功会生成 `report.preview.md`，不调用API。
+
+两个密钥 `ZHIPU_API_KEY` 和 `DEEPSEEK_API_KEY` 必须仍在**当前 PowerShell 会话**中。确认账户有可用额度、同意发起三次可能计费的模型调用后，再执行：
+
+```powershell
+.\run-agents.ps1 -Execute
+```
+
+成功时生成 `report.md`；过程中逐步写入 `report.partial.md`。禁止上传这两个文件里的敏感业务数据到公开仓库。不要上传密钥。此脚本并未在用户电脑上运行验证，需以本地结果为准。
