@@ -1,40 +1,31 @@
-# Life OS · Agent Pool v0.1（DeepSeek + 智谱）
+# Life OS · Agent Pool v0.1（双模型联动版）
 
-**目标**：用户输入一句目标，系统按 Research（智谱）→ Analyst（DeepSeek）→ Reviewer（智谱）顺序协调两个模型，并输出报告。这个编排器是独立Python程序，还不能直接从当前ChatGPT聊天中自动触发。
+此版本调用 **智谱 GLM → DeepSeek → 智谱 GLM**。使用在Windows已验证成功的模型ID `glm-5.3-flash` 和 `deepseek-flash`，并修复早期版的35秒超时问题。
 
-## Windows使用
+## Windows更新
 
-本地Python 3.10+。在此目录启动PowerShell：
+将新版 `main.py` 覆盖到你之前的 `agent-pool-mvp` 目录，**保留 `.venv` 和你的其他文件**。密钥仍在你当前PowerShell会话的环境变量中，无需重装Python或SDK。不要把任何密钥上传GitHub或发给聊天机器人。
+
+首次先预演（不产生API费用）：
 
 ```powershell
-py -m venv .venv
-.\.venv\Scripts\python.exe -m pip install openai
 .\.venv\Scripts\python.exe main.py
 ```
 
-默认只是**dry run**：打印步骤并生成报告，不联网、不扣模型费用。
-
-实际调用前，到[DeepSeek开放平台](https://platform.deepseek.com/)与[智谱开放平台](https://open.bigmodel.cn/)分别开通API密钥，确认资费并设置预算。**不要把密钥发送给ChatGPT或提交到GitHub**。
-
-只在当前终端临时设置密钥（输入隐藏）：
+如果预演成功，而且DeepSeek与智谱API额度已经确认、你同意进行三个可能计费的模型调用，再手动执行：
 
 ```powershell
-$env:DEEPSEEK_API_KEY = Read-Host "DeepSeek API Key" -AsSecureString | ConvertFrom-SecureString -AsPlainText
-$env:ZHIPU_API_KEY = Read-Host "Zhipu API Key" -AsSecureString | ConvertFrom-SecureString -AsPlainText
+$env:DEEPSEEK_MODEL = 'deepseek-flash'
+$env:ZHIPU_MODEL = 'glm-5.3-flash'
+.\.venv\Scripts\python.exe main.py --execute --topic "为中小App设计广告数据自动化服务的7天付费需求验证计划"
 ```
 
-完成后需**明确执行**（会产生API请求及可能的费用）：
+结果：完成全部三步后生成 `report.md`；运行期间已完成步骤保存到 `report.partial.md`。默认不自动重试，避免意外重复花费。可设置 `AGENT_TIMEOUT_SEC` 修改单次超时，默认120秒。
 
-```powershell
-.\.venv\Scripts\python.exe main.py --execute
-```
+## 注意
 
-支持 `--topic "你的任务"` 自定义目标。也可设置 `DEEPSEEK_MODEL`、`ZHIPU_MODEL` 环境变量来切换账户可用的模型。当前示例默认是 DeepSeek `deepseek-v4-flash`、智谱 `glm-5.3-flash`，具体模型ID/权限以厂商控制台为准。
-
-## 系统边界
-- 不修改Life OS线上网页和个人任务数据。
-- 不调用OpenAI API，保留OpenAI兼容Python SDK作为两家模型的HTTP客户端。
-- 先固定3个角色、2家提供商；暂无动态任务拆分、实时网页检索、联网来源核验、长期状态、自动后台执行或ChatGPT对话直连。
-- 只在完整成功后覆盖本地report.md；API报错不会捏造报告完成。
-- 密钥为临时PowerShell环境变量；关闭窗口即清除。严禁在Git仓库保存密钥。
-- 请求调用会产生模型费用，厂商提供的预算通知不一定是严格限额。
+- “模型调用成功”不等于已经做过真实市场调研；这版没有实时搜索、客户访谈或事实核验。
+- 本脚本暂时由Windows手动触发，还没有直接连接ChatGPT会话、Life OS页面或后台自动化。
+- API使用可能计费，请在两家平台查看计费和用量。
+- 如果出现超时，请记录失败步骤和错误类型；不要盲目反复重跑整个流程。
+- 如果密钥此前被发到聊天或公开位置，应立即撤销并更换。
