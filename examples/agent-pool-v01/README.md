@@ -29,7 +29,7 @@ $env:ZHIPU_API_KEY = Read-Host "Zhipu API Key" -AsSecureString | ConvertFrom-Sec
 .\.venv\Scripts\python.exe main.py --execute
 ```
 
-支持 `--topic "你的任务"` 自定义目标。也可设置 `DEEPSEEK_MODEL`、`ZHIPU_MODEL` 环境变量来切换账户可用的模型。当前示例默认是 DeepSeek `deepseek-flash`、智谱 `glm-5.3-flash`，具体模型ID/权限以厂商控制台为准。
+支持 `--topic "你的任务"` 自定义目标。也可设置 `DEEPSEEK_MODEL`、`ZHIPU_MODEL` 环境变量来切换账户可用的模型。当前示例默认是 DeepSeek `deepseek-v4-flash`、智谱 `glm-5.3-flash`，具体模型ID/权限以厂商控制台为准。
 
 ## 系统边界
 - 不修改Life OS线上网页和个人任务数据。
