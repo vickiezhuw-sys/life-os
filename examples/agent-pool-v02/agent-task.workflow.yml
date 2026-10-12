@@ -47,6 +47,9 @@ jobs:
             exit 1
           fi
 
+      - name: Validate objective and report paths without API calls
+        run: python agent_runner.py
+
       - name: Execute bounded three-stage Agent task
         # Repo owner has authorized API calls by applying agent-run-approved label.
         run: python agent_runner.py --execute
