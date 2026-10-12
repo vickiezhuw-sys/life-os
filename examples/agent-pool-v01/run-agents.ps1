@@ -5,7 +5,8 @@ No key is written to disk or printed. No Python or proxy library required.
 #>
 param(
     [string]$Topic = "验证中小App和跨境电商对广告投放数据自动化服务的真实付费需求",
-    [switch]$Execute
+    [switch]$Execute,
+    [switch]$DeepSeekOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -32,6 +33,17 @@ $Stages = @(
     }
 )
 
+# Fallback mode when Zhipu is unavailable: keep three sequential roles, use DeepSeek for all.
+if ($DeepSeekOnly) {
+    foreach ($stage in $Stages) {
+        $stage.Provider = "DeepSeek"
+        $stage.Model = "deepseek-flash"
+        $stage.Url = "https://api.deepseek.com/chat/completions"
+        $stage.KeyName = "DEEPSEEK_API_KEY"
+        $stage.MaxTokens = 1600
+    }
+}
+
 function Save-Report([string]$FileName, [string]$State) {
     $header = "# Agent Pool v0.1`r`n`r`n状态：$State`r`n`r`n目标：$Topic`r`n`r`n"
     $header += "> AI生成草案；尚未进行网页搜索或真实客户访谈，请勿视为真实付费需求的证明。`r`n"
@@ -50,8 +62,8 @@ if (-not $Execute) {
     exit 0
 }
 
-if (-not $env:ZHIPU_API_KEY -or -not $env:DEEPSEEK_API_KEY) {
-    Write-Host "请先在当前PowerShell窗口设置ZHIPU_API_KEY和DEEPSEEK_API_KEY，不要把密钥发到聊天。"
+if (-not $env:DEEPSEEK_API_KEY -or ((-not $DeepSeekOnly) -and (-not $env:ZHIPU_API_KEY))) {
+    Write-Host "未配置当前模式所需的API密钥。DeepSeekOnly模式只需要DEEPSEEK_API_KEY。不要在聊天中发送密钥。"
     exit 1
 }
 
