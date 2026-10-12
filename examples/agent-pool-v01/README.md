@@ -51,3 +51,19 @@ Unblock-File .\run-agents.ps1
 ```
 
 成功时生成 `report.md`；过程中逐步写入 `report.partial.md`。禁止上传这两个文件里的敏感业务数据到公开仓库。不要上传密钥。此脚本并未在用户电脑上运行验证，需以本地结果为准。
+
+## 智谱暂不可用时：DeepSeek单模型、三角色模式
+
+保留 Research → Analyst → Reviewer 的协作结构，但三个角色均使用 DeepSeek。这是**单厂商多角色流程验证**，不是已完成多厂商联动。
+
+先从GitHub更新 `run-agents.ps1`。在原Windows PowerShell目录执行：
+
+```powershell
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/vickiezhuw-sys/life-os/main/examples/agent-pool-v01/run-agents.ps1" -OutFile ".\run-agents.ps1"
+Unblock-File .\run-agents.ps1
+.\run-agents.ps1 -DeepSeekOnly
+```
+
+上述仅模拟运行、**不产生API费用**。确认 DeepSeek API Key 在当前终端、已有可用额度并批准运行后才执行 ` .\run-agents.ps1 -DeepSeekOnly -Execute `，会产生最多三次模型API调用。报告在当前目录。脚本已提交，但尚未通过用户Windows实际验收。
+
+智谱GLM账户可用额度尚不明，用户决定暂时停止智谱相关充值与排障；以后恢复时再切换双厂商模式。
