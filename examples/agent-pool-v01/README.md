@@ -89,3 +89,9 @@ try {
 ```
 
 脚本会先读取并验证本地已完成阶段，从未完成的Analyst继续；涉及新的模型调用和可能费用。确保任务Topic与检查点一致，不要加 `-DeepSeekOnly`，以免厂商与检查点不匹配。此前的成功阶段不会重跑。
+
+## UTF-8编码修复（2026-10-12）
+
+旧版Windows PowerShell调用DeepSeek时可能将UTF-8响应正文误解码，导致Analyst报告中文乱码。最新版`run-agents.ps1`通过 .NET WebRequest明确用UTF-8读取HTTP JSON响应，再转为PowerShell对象，以避免后续Agent收到乱码。此修复尚未在用户Windows环境完成端到端重测；已发生的乱码不需要重新调用模型即可离线恢复。
+
+已有报告可上传聊天由主控修复文本编码，并进行业务质量审核；不要为了修复乱码重复运行付费API。
