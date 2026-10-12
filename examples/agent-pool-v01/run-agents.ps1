@@ -58,6 +58,24 @@ if ($Resume -and -not $Execute) {
     throw "-Resume 必须与 -Execute 一起使用（会调用未完成阶段的模型API）。"
 }
 
+function Invoke-JsonUtf8([string]$Uri, [string]$ApiKey, [byte[]]$Data) {
+    # Use the same .NET HTTP stack as PowerShell 5.1, but decode the JSON body as UTF-8 explicitly.
+    $request = [System.Net.HttpWebRequest][System.Net.WebRequest]::Create($Uri)
+    $request.Method = 'POST'
+    $request.ContentType = 'application/json; charset=utf-8'
+    $request.Headers[[System.Net.HttpRequestHeader]::Authorization] = 'Bearer ' + $ApiKey
+    $request.Timeout = 120000
+    $request.ReadWriteTimeout = 120000
+    $request.ContentLength = $Data.Length
+    $stream = $request.GetRequestStream()
+    try { $stream.Write($Data, 0, $Data.Length) } finally { $stream.Dispose() }
+    $httpResponse = [System.Net.HttpWebResponse]$request.GetResponse()
+    try {
+        $reader = [System.IO.StreamReader]::new($httpResponse.GetResponseStream(), [System.Text.Encoding]::UTF8)
+        try { $responseText = $reader.ReadToEnd() } finally { $reader.Dispose() }
+        return ConvertFrom-Json -InputObject $responseText
+    } finally { $httpResponse.Dispose() }
+}
 if (-not $Execute) {
     foreach ($step in $Stages) {
         $Script:Sections += "## $($step.Name) ($($step.Provider))`r`n`r`n计划：$($step.Task)"
@@ -124,9 +142,7 @@ for ($stepIndex = 0; $stepIndex -lt $Stages.Count; $stepIndex++) {
     $json = ConvertTo-Json -InputObject $payload -Depth 10
     $headers = @{ Authorization = "Bearer $key" }
     try {
-        $response = Invoke-RestMethod -Uri $step.Url -Method Post -Headers $headers `
-            -ContentType "application/json; charset=utf-8" `
-            -Body ([System.Text.Encoding]::UTF8.GetBytes($json)) -TimeoutSec 120
+        $response = Invoke-JsonUtf8 -Uri $step.Url -ApiKey $key -Data ([System.Text.Encoding]::UTF8.GetBytes($json))
         if (-not $response.choices -or -not $response.choices[0].message.content) {
             throw "响应不包含正文；结束原因：$($response.choices[0].finish_reason)"
         }
