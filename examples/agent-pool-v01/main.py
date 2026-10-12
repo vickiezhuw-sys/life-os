@@ -6,7 +6,7 @@ from pathlib import Path
 from openai import OpenAI
 
 PROVIDERS = {
-    "deepseek": ("DEEPSEEK_API_KEY", "https://api.deepseek.com", "DEEPSEEK_MODEL", "deepseek-flash"),
+    "deepseek": ("DEEPSEEK_API_KEY", "https://api.deepseek.com", "DEEPSEEK_MODEL", "deepseek-v4-flash"),
     "zhipu": ("ZHIPU_API_KEY", "https://open.bigmodel.cn/api/paas/v4", "ZHIPU_MODEL", "glm-5.3-flash"),
 }
 STEPS = (
