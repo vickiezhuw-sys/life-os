@@ -231,3 +231,10 @@ h1 { margin:4px 0 0; font-size:28px; line-height:1.15; font-weight:680; }
   .day-module-row { grid-template-columns:82px 1fr 72px; }
   .view-tabs { max-width:100%; overflow-x:auto; }
 }
+
+.agent-results { display:grid; gap:14px; margin:24px 0; }
+.agent-card h3 { overflow-wrap:anywhere; font-size:20px; }
+.agent-card .agent-summary { margin-top:18px; white-space:pre-wrap; }
+.agent-card li { font-size:13px; line-height:1.7; margin:6px 0; overflow-wrap:anywhere; }
+.agent-preview { margin-top:24px; border-left:3px solid #746d62; padding-left:16px; }
+.view-tabs { flex-wrap:wrap; }

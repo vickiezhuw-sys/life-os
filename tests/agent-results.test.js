@@ -1,0 +1,18 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {validateAgentResult, mergeAgentResults, readAgentResults} from '../src/agent-results.js';
+const sample = () => ({schema:'life-os-agent-result-v1',version:'1.0.0',task_id:'test-1',fingerprint:'a'.repeat(64),objective:'验证目标',module:'Career OS',status:'awaiting_acceptance',mode:'paid',summary:'示例结果',next_actions:['核对来源'],calls_attempted:3,updated_at:'2026-10-13T03:00:00+00:00',accepted_by_user:false,duration_minutes:null});
+test('valid result retains no invented time', () => assert.equal(validateAgentResult(sample()).duration_minutes,null));
+test('duplicate import is idempotent', () => assert.equal(mergeAgentResults([sample()],[sample()]).length,1));
+test('cloud merge keeps newest result', () => {const newer={...sample(),status:'accepted',accepted_by_user:true,updated_at:'2026-10-13T04:00:00Z'};assert.equal(mergeAgentResults([newer],[sample()])[0].status,'accepted');});
+test('demo and real execution stay separate', () => assert.equal(mergeAgentResults([sample(),{...sample(),mode:'demo'}]).length,2));
+test('demo cannot report acceptance', () => assert.throws(() => validateAgentResult({...sample(),mode:'demo',status:'accepted',accepted_by_user:true})));
+test('invalid status fails closed', () => assert.throws(() => validateAgentResult({...sample(),status:'completed'})));
+test('forged duration rejected', () => assert.throws(() => validateAgentResult({...sample(),duration_minutes:300})));
+test('prototype keys rejected as status', () => assert.throws(() => validateAgentResult({...sample(),status:'__proto__'})));
+test('malformed source file rejected', () => assert.throws(() => validateAgentResult({schema:'unknown'})));
+test('invalid timestamps rejected', () => assert.throws(() => validateAgentResult({...sample(),updated_at:'bad'})));
+test('oversized action rejected', () => assert.throws(() => validateAgentResult({...sample(),next_actions:['x'.repeat(2001)]})));
+test('unknown fields stripped', () => assert.equal(validateAgentResult({...sample(),api_key:'secret'}).api_key,undefined));
+test('corrupt storage harmless', () => assert.deepEqual(readAgentResults({getItem:()=>'{bad'}),[]));
+test('merge skips invalid objects', () => assert.equal(mergeAgentResults([null,sample(),{...sample(),calls_attempted:999}]).length,1));
