@@ -1,4 +1,5 @@
 import "./style.css";
+import { AGENT_RESULT_KEY, RESULT_STATUSES, validateAgentResult, mergeAgentResults, readAgentResults } from "./agent-results.js";
 import baseline from "./baseline-data.json";
 import currentWeekPlan from "./current-week-data.json";
 import sepOctPlan from "./sep-oct-plan.json";
@@ -21,6 +22,9 @@ let statsRange = "day";
 let statsModule = "all";
 let cloudSyncReady = false;
 let syncTimer = null;
+let agentResults = readAgentResults();
+let agentImportPreview = null;
+let agentImportError = "";
 
 function loadBuild() {
   try {
@@ -152,6 +156,7 @@ function snapshot() {
     version: 1,
     planner: state,
     buildItems,
+    agentResults,
     savedAt: new Date().toISOString()
   };
 }
@@ -178,14 +183,18 @@ function mergeSnapshot(cloudPayload = {}, localPayload = snapshot()) {
     localPayload.buildItems || [],
     item => item.id || `${item.at || ""}|${item.content || ""}`
   ));
-  return { version: 1, planner, buildItems: builds, savedAt: new Date().toISOString() };
+  return { version: 1, planner, buildItems: builds,
+    agentResults: mergeAgentResults(cloudPayload.agentResults, localPayload.agentResults),
+    savedAt: new Date().toISOString() };
 }
 function applySnapshot(payload) {
   if (!payload) return;
   if (payload.planner?.tasks) state = normalizePlanner(payload.planner);
   if (Array.isArray(payload.buildItems)) buildItems = addVerifiedBuildSeeds(payload.buildItems);
+  if (Array.isArray(payload.agentResults)) agentResults = mergeAgentResults(payload.agentResults);
   localStorage.setItem(STORE_KEY, JSON.stringify(state));
   localStorage.setItem(BUILD_KEY, JSON.stringify(buildItems));
+  localStorage.setItem(AGENT_RESULT_KEY, JSON.stringify(agentResults));
 }
 function queueCloudSync() {
   if (!cloudConfigured || !getCloudSession()?.access_token) return;
@@ -213,6 +222,7 @@ function renderCurrentView() {
   else if (currentView === "build") renderBuild();
   else if (currentView === "month") renderMonth();
   else if (currentView === "sync") renderSync();
+  else if (currentView === "agents") renderAgents();
   else render();
 }
 
@@ -222,6 +232,7 @@ function navHtml(active) {
     ["planner", "Weekly"],
     ["month", "Month"],
     ["build", "Build"],
+    ["agents", "Agents"],
     ["sync", "Sync"],
   ];
   return `<div class="view-tabs">${items.map(([key,label])=>`<button class="view-tab ${active===key?"active":""}" data-nav="${key}">${label}</button>`).join("")}</div>`;
@@ -288,6 +299,55 @@ function openEditor(task={}, date=weekDates(state.weekStart)[0]) {
 }
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));
+}
+
+function renderAgents() {
+  const card = (item, preview = false) => `<article class="sync-card agent-card">
+    <div class="brand-kicker">${item.mode === "demo" ? "离线演示" : "模型任务"} · ${escapeHtml(item.module)}</div>
+    <h3>${escapeHtml(item.objective)}</h3>
+    <span class="badge">${escapeHtml(RESULT_STATUSES[item.status])}</span>
+    <p class="agent-summary">${escapeHtml(item.summary || "尚无阶段结果")}</p>
+    <ul>${item.next_actions.map(action => `<li>${escapeHtml(action)}</li>`).join("")}</ul>
+    <p class="muted">${escapeHtml(item.task_id)} · ${item.mode === "demo" ? "模拟" : "尝试调用"} ${item.calls_attempted} 次</p>
+    ${preview ? `<div class="sync-actions"><button class="btn primary" id="confirmAgentImport">确认导入结果</button><button class="btn" id="cancelAgentImport">取消</button></div>` : ""}
+  </article>`;
+  document.querySelector("#app").innerHTML = `<main class="shell">
+    <header class="topbar"><div><div class="brand-kicker">Life OS · Agent Pool</div><h1>Agents</h1></div>${navHtml("agents")}</header>
+    <section class="sync-hero"><div class="brand-kicker">目标 → 执行 → 审核 → 验收</div><h2>接收成果，决定下一步。</h2>
+      <p>从私有任务下载结果文件，预览后导入。结果按任务去重保存；周计划完成状态和实际投入时间由你确认记录。</p>
+      <div class="sync-actions"><label class="btn primary import-label">导入 Agent 结果<input id="importAgentResult" type="file" accept="application/json,.json" hidden /></label></div>
+      <p class="muted">此页面不会触发模型调用。导入内容会随已有云同步保存到你的账户，请确认内容适合保存。</p>
+    </section>
+    ${agentImportError ? `<div class="sync-error" role="alert">${escapeHtml(agentImportError)}</div>` : ""}
+    ${agentImportPreview ? `<section class="agent-preview"><h3>导入预览</h3>${card(agentImportPreview, true)}</section>` : ""}
+    <section class="agent-results">${agentResults.length ? agentResults.map(item => card(item)).join("") : `<div class="day-empty">还没有 Agent 结果。下载任务输出中的 life-os-result.json 后导入。</div>`}</section>
+    <p class="muted">文件内容由导出方提供，本页面无法验证提供者身份。模型审核通过会显示“待人工验收”，不会自动记为已完成。</p>
+  </main>`;
+  bindNavigation();
+  document.querySelector("#importAgentResult").onchange = async e => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    agentImportPreview = null; agentImportError = "";
+    try {
+      if (file.size > 1000000) throw new Error("结果文件不能超过 1MB");
+      agentImportPreview = validateAgentResult(JSON.parse(await file.text()));
+    } catch (error) {
+      agentImportError = error instanceof SyntaxError ? "文件不是有效的 JSON 结果" : error.message;
+    }
+    renderAgents();
+  };
+  if (agentImportPreview) {
+    document.querySelector("#confirmAgentImport").onclick = () => {
+      const next = mergeAgentResults(agentResults, [agentImportPreview]);
+      try {
+        localStorage.setItem(AGENT_RESULT_KEY, JSON.stringify(next));
+        agentResults = next; agentImportPreview = null; agentImportError = "";
+        if (cloudSyncReady) queueCloudSync();
+      } catch { agentImportError = "保存失败，请检查浏览器存储空间后重试"; }
+      renderAgents();
+    };
+    document.querySelector("#cancelAgentImport").onclick = () => { agentImportPreview = null; renderAgents(); };
+  }
 }
 
 
