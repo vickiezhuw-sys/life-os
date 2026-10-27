@@ -214,6 +214,7 @@ function mergeSnapshot(cloudPayload = {}, localPayload = snapshot()) {
   const planner = {
     ...cloudPlanner,
     ...localPlanner,
+    todayFocus: {...(cloudPlanner.todayFocus || {}), ...(localPlanner.todayFocus || {})},
     deletedTasks: mergedDeletions(cloudPlanner.deletedTasks, localPlanner.deletedTasks),
     tasks: []
   };
