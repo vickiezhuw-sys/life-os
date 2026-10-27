@@ -1,5 +1,4 @@
 import "./style.css";
-import { mergeTasks } from "./task-merge.js";
 import { AGENT_RESULT_KEY, RESULT_STATUSES, validateAgentResult, mergeAgentResults, readAgentResults } from "./agent-results.js";
 import baseline from "./baseline-data.json";
 import currentWeekPlan from "./current-week-data.json";
@@ -106,6 +105,41 @@ function addResumeSprint(state) {
 }
 // Deduplicate planner tasks by their semantic identity, not generated UUIDs.
 // Preserve completion if any copy was completed and retain informative notes.
+// Pure helpers for conflict-safe planner reconciliation.
+function taskIdentity(task) {
+  return [task.date, task.module || "", String(task.title || "").trim().replace(/\s+/g, " ")].join("|");
+}
+function stamp(t) {
+  const n = Date.parse(t?.updatedAt || "");
+  return Number.isFinite(n) ? n : null;
+}
+function mergeTasks(items = []) {
+  const map = new Map();
+  for (const task of items) {
+    if (!task?.date || !task?.title) continue;
+    const key = taskIdentity(task);
+    const previous = map.get(key);
+    if (!previous) { map.set(key, { ...task }); continue; }
+    const a = stamp(previous), b = stamp(task);
+    // Explicit user edits beat old unversioned snapshots. Legacy vs legacy
+    // keeps the historical completed state to avoid silently losing progress.
+    let winner, loser;
+    if (a !== null || b !== null) {
+      const chooseNew = b !== null && (a === null || b > a || (b === a && String(task.id) > String(previous.id)));
+      winner = chooseNew ? task : previous;
+      loser = chooseNew ? previous : task;
+    } else {
+      winner = { ...previous, done: Boolean(previous.done || task.done) };
+      loser = task;
+    }
+    map.set(key, {
+      ...winner,
+      note: winner.note || loser.note || ""
+    });
+  }
+  return [...map.values()];
+}
+
 function dedupeTasks(tasks = []) {
   return mergeTasks(tasks);
 }
