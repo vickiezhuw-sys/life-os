@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import * as results from '../src/agent-results.js';
 import * as lifecycle from '../src/lifecycle.js';
 import * as taskMerge from '../src/task-merge.js';
+import { usageGuideHtml } from '../src/usage-guide.js';
 function appHarness(overrides = {}, stores = {}) {
   const values = new Map(Object.entries(stores));
   const elements = new Map();
@@ -19,12 +20,12 @@ function appHarness(overrides = {}, stores = {}) {
     window:{addEventListener(){},dispatchEvent(){}},setTimeout:()=>0,clearTimeout(){},
     cloudConfigured:false,getCloudSession:()=>null,getCloudMeta:()=>({}),
     signIn(){},signUp(){},signOut(){},pullCloudSnapshot(){},pushCloudSnapshot(){},
-    ...results, ...lifecycle, ...taskMerge, ...overrides};
+    ...results, ...lifecycle, ...taskMerge, usageGuideHtml, ...overrides};
   context.readAgentResults = () => results.readAgentResults(context.localStorage);
   for (const [name,path] of [['baseline','baseline-data.json'],['currentWeekPlan','current-week-data.json'],['sepOctPlan','sep-oct-plan.json'],['monthPlan','month-plan.json'],['resumeSprint','sprint-01-resume-plan.json']]) context[name]=JSON.parse(fs.readFileSync(new URL('../src/'+path,import.meta.url),'utf8'));
   const source = fs.readFileSync(new URL('../src/app.js',import.meta.url),'utf8').replace(/^import .*;\r?\n/gm,'');
   vm.createContext(context);
-  vm.runInContext(source + '\nglobalThis.api={snapshot,mergeSnapshot,applySnapshot,renderAgents,openEditor,syncNow,toggleTodayFocus,carryTask,renderDay,importBackupText};',context);
+  vm.runInContext(source + '\nglobalThis.api={snapshot,mergeSnapshot,applySnapshot,renderAgents,openEditor,syncNow,toggleTodayFocus,carryTask,renderDay,importBackupText,resetCarryoverFromTomorrow};',context);
   return {context,element,values,api:context.api};
 }
 const sample=()=>({schema:'life-os-agent-result-v1',version:'1.0.0',task_id:'ui-import',fingerprint:'a'.repeat(64),objective:'<img src=x onerror=alert(1)>',module:'Career OS',status:'awaiting_acceptance',mode:'paid',summary:'<script>alert(1)</script>',next_actions:['检查来源'],calls_attempted:3,updated_at:'2026-10-13T03:00:00Z',accepted_by_user:false,duration_minutes:null});
@@ -250,4 +251,16 @@ test('text migration backs up destination and unions actual records without cred
  const valid=JSON.stringify(h.api.snapshot().planner);
  assert.throws(()=>h.api.importBackupText('{"planner":{}}'));
  assert.equal(JSON.stringify(h.api.snapshot().planner),valid);
+});
+test('reset clears historical carryover eligibility without changing task history or Build',()=>{
+ const h=appHarness();const tasks=[{id:'old',date:'2026-10-26',title:'历史',done:false},{id:'today',date:'2026-10-27',title:'今天',done:false},{id:'tomorrow',date:'2026-10-28',title:'明天',done:false}];
+ h.api.applySnapshot({planner:{tasks}});const before=JSON.stringify(h.api.snapshot());
+ h.api.resetCarryoverFromTomorrow('2026-10-27');
+ assert.equal(h.api.snapshot().planner.carryoverPolicy.fromDate,'2026-10-28');
+ assert.equal(JSON.stringify(h.api.snapshot().planner.tasks),JSON.stringify(JSON.parse(before).planner.tasks));
+ assert.equal(h.api.carryTask('old','2026-10-27'),false);assert.equal(h.api.carryTask('today','2026-10-28'),false);
+ assert.equal(h.api.carryTask('tomorrow','2026-10-29'),true);
+ assert.equal(JSON.stringify(h.api.snapshot().buildItems),JSON.stringify(JSON.parse(before).buildItems));
+ const stale={planner:{tasks:[],carryoverPolicy:{fromDate:'2026-10-01',updatedAt:'2026-10-01T00:00:00Z'}}};
+ for(const merged of [h.api.mergeSnapshot(stale),h.api.mergeSnapshot(h.api.snapshot(),stale)]) assert.equal(merged.planner.carryoverPolicy.fromDate,'2026-10-28');
 });
