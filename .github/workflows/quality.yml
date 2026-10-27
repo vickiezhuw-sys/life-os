@@ -1,7 +1,6 @@
 name: Life OS quality gates
 on:
   pull_request:
-    branches: [main]
   push:
     branches: [main]
 jobs:
