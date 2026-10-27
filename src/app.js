@@ -1,4 +1,5 @@
 import "./style.css";
+import { mergeTasks } from "./task-merge.js";
 import { AGENT_RESULT_KEY, RESULT_STATUSES, validateAgentResult, mergeAgentResults, readAgentResults } from "./agent-results.js";
 import baseline from "./baseline-data.json";
 import currentWeekPlan from "./current-week-data.json";
@@ -106,23 +107,9 @@ function addResumeSprint(state) {
 // Deduplicate planner tasks by their semantic identity, not generated UUIDs.
 // Preserve completion if any copy was completed and retain informative notes.
 function dedupeTasks(tasks = []) {
-  const byKey = new Map();
-  for (const task of tasks) {
-    if (!task || !task.date || !task.title) continue;
-    const key = [task.date, task.module || "", task.title.trim().replace(/\s+/g, " ")].join("|");
-    if (!byKey.has(key)) {
-      byKey.set(key, {...task});
-      continue;
-    }
-    const prior = byKey.get(key);
-    byKey.set(key, {
-      ...prior,
-      done: Boolean(prior.done || task.done),
-      note: (task.note || "").length > (prior.note || "").length ? task.note : prior.note
-    });
-  }
-  return [...byKey.values()];
+  return mergeTasks(tasks);
 }
+
 function normalizePlanner(planner) {
   return reconcileConfirmedProgress({...planner, tasks: dedupeTasks(planner.tasks || [])});
 }
@@ -290,7 +277,8 @@ function openEditor(task={}, date=weekDates(state.weekStart)[0]) {
       date: fd.get("date"),
       module: fd.get("module"),
       title: fd.get("title").trim(),
-      note: fd.get("note").trim()
+      note: fd.get("note").trim(),
+      updatedAt: new Date().toISOString()
     };
     if (editing) state.tasks=state.tasks.map(x=>x.id===task.id?next:x);
     else state.tasks.push(next);
@@ -550,7 +538,7 @@ function renderDay() {
 
   bindNavigation();
   document.querySelectorAll("[data-day-check]").forEach(el=>el.onclick=()=>{
-    state.tasks=state.tasks.map(t=>t.id===el.dataset.dayCheck?{...t,done:!t.done}:t);
+    state.tasks=state.tasks.map(t=>t.id===el.dataset.dayCheck?{...t,done:!t.done,updatedAt:new Date().toISOString()}:t);
     save(state);
     renderDay();
   });
@@ -910,7 +898,7 @@ function render() {
   `;
   bindNavigation();
   document.querySelectorAll("[data-check]").forEach(el=>el.onclick=()=>{
-    state.tasks=state.tasks.map(t=>t.id===el.dataset.check?{...t,done:!t.done}:t); save(state); render();
+    state.tasks=state.tasks.map(t=>t.id===el.dataset.check?{...t,done:!t.done,updatedAt:new Date().toISOString()}:t); save(state); render();
   });
   document.querySelectorAll("[data-edit]").forEach(el=>el.onclick=()=>openEditor(state.tasks.find(t=>t.id===el.dataset.edit)));
   document.querySelectorAll("[data-add]").forEach(el=>el.onclick=()=>openEditor({}, el.dataset.add));
