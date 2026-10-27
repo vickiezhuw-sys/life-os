@@ -7,6 +7,7 @@ import * as results from '../src/agent-results.js';
 import * as lifecycle from '../src/lifecycle.js';
 import * as taskMerge from '../src/task-merge.js';
 import { usageGuideHtml } from '../src/usage-guide.js';
+import * as execution from '../src/execution.js';
 function appHarness(overrides = {}, stores = {}) {
   const values = new Map(Object.entries(stores));
   const elements = new Map();
@@ -20,12 +21,12 @@ function appHarness(overrides = {}, stores = {}) {
     window:{addEventListener(){},dispatchEvent(){}},setTimeout:()=>0,clearTimeout(){},
     cloudConfigured:false,getCloudSession:()=>null,getCloudMeta:()=>({}),
     signIn(){},signUp(){},signOut(){},pullCloudSnapshot(){},pushCloudSnapshot(){},
-    ...results, ...lifecycle, ...taskMerge, usageGuideHtml, ...overrides};
+    ...results, ...lifecycle, ...taskMerge, ...execution, usageGuideHtml, ...overrides};
   context.readAgentResults = () => results.readAgentResults(context.localStorage);
   for (const [name,path] of [['baseline','baseline-data.json'],['currentWeekPlan','current-week-data.json'],['sepOctPlan','sep-oct-plan.json'],['monthPlan','month-plan.json'],['resumeSprint','sprint-01-resume-plan.json']]) context[name]=JSON.parse(fs.readFileSync(new URL('../src/'+path,import.meta.url),'utf8'));
   const source = fs.readFileSync(new URL('../src/app.js',import.meta.url),'utf8').replace(/^import .*;\r?\n/gm,'');
   vm.createContext(context);
-  vm.runInContext(source + '\nglobalThis.api={snapshot,mergeSnapshot,applySnapshot,renderAgents,openEditor,syncNow,toggleTodayFocus,carryTask,renderDay,importBackupText,resetCarryoverFromTomorrow};',context);
+  vm.runInContext(source + '\nglobalThis.api={snapshot,mergeSnapshot,applySnapshot,renderAgents,openEditor,syncNow,toggleTodayFocus,carryTask,renderDay,importBackupText,resetCarryoverFromTomorrow,recordEffort,renderMonth,renderCurrentView,navHtml};',context);
   return {context,element,values,api:context.api};
 }
 const sample=()=>({schema:'life-os-agent-result-v1',version:'1.0.0',task_id:'ui-import',fingerprint:'a'.repeat(64),objective:'<img src=x onerror=alert(1)>',module:'Career OS',status:'awaiting_acceptance',mode:'paid',summary:'<script>alert(1)</script>',next_actions:['检查来源'],calls_attempted:3,updated_at:'2026-10-13T03:00:00Z',accepted_by_user:false,duration_minutes:null});
@@ -263,4 +264,25 @@ test('reset clears historical carryover eligibility without changing task histor
  assert.equal(JSON.stringify(h.api.snapshot().buildItems),JSON.stringify(JSON.parse(before).buildItems));
  const stale={planner:{tasks:[],carryoverPolicy:{fromDate:'2026-10-01',updatedAt:'2026-10-01T00:00:00Z'}}};
  for(const merged of [h.api.mergeSnapshot(stale),h.api.mergeSnapshot(h.api.snapshot(),stale)]) assert.equal(merged.planner.carryoverPolicy.fromDate,'2026-10-28');
+});
+test('Day effort recording preserves legacy history and completion through backup and sync',()=>{
+ const h=appHarness();h.api.applySnapshot({planner:{tasks:[{id:'effort-task',date:'2026-10-27',title:'真实任务',done:false,module:'Career OS'}]}});
+ const before=JSON.parse(JSON.stringify(h.api.snapshot()));
+ const a=h.api.recordEffort({taskId:'effort-task',duration:30,at:'2026-10-27T09:00'});
+ const b=h.api.recordEffort({taskId:'effort-task',duration:45,at:'2026-10-27T10:00'});
+ assert.notEqual(a.id,b.id);assert.equal(h.api.snapshot().planner.tasks[0].done,false);
+ assert.equal(h.api.snapshot().buildItems.length,before.buildItems.length+2);
+ const backup=JSON.parse(JSON.stringify(h.api.snapshot()));const merged=h.api.mergeSnapshot(backup,backup);
+ assert.equal(merged.buildItems.length,backup.buildItems.length);
+ assert.equal(merged.buildItems.filter(x=>x.taskId==='effort-task').reduce((sum,x)=>sum+x.duration,0),75);
+ assert.ok(merged.buildItems.some(x=>x.id===before.buildItems[0].id && x.duration===before.buildItems[0].duration));
+ h.api.applySnapshot(merged);h.api.renderDay();
+ assert.match(h.element('#app').innerHTML,/记录投入/);assert.match(h.element('#app').innerHTML,/1 小时 15 分钟/);
+ h.api.renderMonth();assert.match(h.element('#app').innerHTML,/投入统计与历史记录/);
+ assert.equal(h.api.navHtml('day').includes('data-nav="build"'),false);
+});
+test('legacy Build route redirects to Month without changing saved records',()=>{
+ let route='';const h=appHarness({location:{hash:'#build'},history:{replaceState:(a,b,value)=>{route=value;}}});
+ assert.equal(route,'#month');assert.match(h.element('#app').innerHTML,/投入统计与历史记录/);
+ assert.equal(h.api.snapshot().buildItems[0].duration,149);
 });
