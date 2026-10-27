@@ -238,6 +238,30 @@ h1 { margin:4px 0 0; font-size:28px; line-height:1.15; font-weight:680; }
 .agent-card li { font-size:13px; line-height:1.7; margin:6px 0; overflow-wrap:anywhere; }
 .agent-preview { margin-top:24px; border-left:3px solid #746d62; padding-left:16px; }
 .view-tabs { flex-wrap:wrap; }
+.cycle-intro { color:#746e64; line-height:1.8; padding:12px 0; }
+.cycle-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; margin:20px 0; }
+.cycle-form,.cycle-card { border:1px solid #cec5b8; border-radius:20px; padding:20px; background:#fbf8f1; min-width:0; }
+.cycle-form { display:grid; gap:14px; align-content:start; }
+.cycle-form h3,.cycle-card h3 { margin:0 0 8px; }
+.cycle-form label,.cycle-inline label { display:grid; gap:8px; font-size:13px; }
+.cycle-form input,.cycle-form select,.cycle-form textarea,.cycle-inline input,.cycle-inline select { width:100%; min-width:0; padding:11px 12px; border:1px solid #cfc5b6; border-radius:12px; background:#fffdf8; color:inherit; }
+.cycle-form textarea { min-height:100px; resize:vertical; }
+.cycle-inline { display:flex; flex-wrap:wrap; gap:10px; margin:16px 0; align-items:end; }
+.cycle-inline > input { flex:1; min-width:180px; }
+.cycle-stack { display:grid; gap:14px; margin:20px 0; }
+.cycle-card p { line-height:1.7; color:#746e64; font-size:13px; }
+.cycle-heading { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+.cycle-project { padding:18px 0 0 16px; margin:18px 0 0; border-left:2px solid #cfc5b6; }
+.cycle-project h4 { margin:0; }
+.cycle-task { display:block; width:100%; text-align:left; background:transparent; color:inherit; border:0; border-top:1px solid #e2dbcf; padding:12px 0; line-height:1.6; overflow-wrap:anywhere; }
+.cycle-metrics { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:20px 0; }
+.cycle-metrics > div { display:grid; gap:8px; padding:14px; border-radius:12px; background:#eee8dd; }
+.cycle-metrics strong { font-size:26px; }.cycle-metrics span { font-size:12px; color:#746e64; }
+.capture-schedule { margin-top:12px; }
+.cycle-card,.cycle-form,.cycle-project { overflow-wrap:anywhere; }
+.topbar .view-tabs { flex-shrink:1; }
+@media(max-width:850px) { .cycle-grid { grid-template-columns:1fr; } }
+@media(max-width:480px) { .cycle-metrics { grid-template-columns:1fr; }.cycle-inline > * { width:100%; }.cycle-heading { align-items:start; flex-wrap:wrap; } }
 .day-panel + .day-panel { margin-top:12px; }
 #dailyReviewForm label { display:grid; gap:8px; min-width:0; }
 #dailyReviewForm textarea { width:100%; min-height:100px; resize:vertical; border:1px solid #cfc5b6; border-radius:12px; padding:12px; background:#fffdf8; }

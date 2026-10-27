@@ -4,8 +4,10 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import crypto from 'node:crypto';
 import * as results from '../src/agent-results.js';
-function appHarness(overrides = {}) {
-  const values = new Map();
+import * as lifecycle from '../src/lifecycle.js';
+import * as taskMerge from '../src/task-merge.js';
+function appHarness(overrides = {}, stores = {}) {
+  const values = new Map(Object.entries(stores));
   const elements = new Map();
   const element = selector => {
     if (!elements.has(selector)) elements.set(selector, {innerHTML:'',value:'',dataset:{},querySelector:element,querySelectorAll:()=>[],addEventListener(){},remove(){},focus(){}});
@@ -17,7 +19,7 @@ function appHarness(overrides = {}) {
     window:{addEventListener(){},dispatchEvent(){}},setTimeout:()=>0,clearTimeout(){},
     cloudConfigured:false,getCloudSession:()=>null,getCloudMeta:()=>({}),
     signIn(){},signUp(){},signOut(){},pullCloudSnapshot(){},pushCloudSnapshot(){},
-    ...results, ...overrides};
+    ...results, ...lifecycle, ...taskMerge, ...overrides};
   context.readAgentResults = () => results.readAgentResults(context.localStorage);
   for (const [name,path] of [['baseline','baseline-data.json'],['currentWeekPlan','current-week-data.json'],['sepOctPlan','sep-oct-plan.json'],['monthPlan','month-plan.json'],['resumeSprint','sprint-01-resume-plan.json']]) context[name]=JSON.parse(fs.readFileSync(new URL('../src/'+path,import.meta.url),'utf8'));
   const source = fs.readFileSync(new URL('../src/app.js',import.meta.url),'utf8').replace(/^import .*;\r?\n/gm,'');
@@ -191,4 +193,51 @@ test('daily note persists immediately before navigation',()=>{
  const h=appHarness();h.api.renderDay();
  h.element('#dailyNote').value='即时保存';h.element('#dailyNote').oninput();
  assert.ok(Object.values(h.api.snapshot().planner.dailyNotes).includes('即时保存'));
+});
+
+test('V1 lifecycle graph survives cloud union and JSON backup roundtrip without losing legacy data',()=>{
+ const h=appHarness();const before=h.api.snapshot();
+ const local={...before,planner:{...before.planner,goals:[{id:'g',title:'目标',metric:'成果'}],projects:[{id:'p',goalId:'g',title:'项目'}],plans:[{id:'w',projectId:'p',kind:'week',period:'2026-10-26',outcome:'周成果'}],periodReviews:[{id:'r',summary:'真实复盘'}]}};
+ const cloud={planner:{tasks:[],captures:[{id:'c',title:'另一设备捕获'}],goals:[{id:'g2',title:'另一目标'}]}};
+ const merged=h.api.mergeSnapshot(cloud,local);h.api.applySnapshot(JSON.parse(JSON.stringify(merged)));
+ const after=h.api.snapshot();assert.equal(after.planner.goals.length,2);assert.equal(after.planner.projects[0].goalId,'g');assert.equal(after.planner.plans[0].projectId,'p');assert.equal(after.planner.periodReviews[0].summary,'真实复盘');assert.equal(after.planner.captures.length,1);
+ assert.equal(after.planner.tasks.length,before.planner.tasks.length);assert.equal(JSON.stringify(after.buildItems),JSON.stringify(before.buildItems));
+});
+test('V1 upgrade preserves exact pre-upgrade planner and Build in a one-time backup',()=>{
+ const planner={tasks:[{id:'legacy',date:'2026-10-27',title:'历史任务',done:true}],dailyNotes:{old:'keep'}};
+ const builds=[{id:'real',content:'真实记录',at:'2026-10-27T09:00',duration:17}];
+ const h=appHarness({}, {'life-os-weekly-planner-v1':JSON.stringify(planner),'life-os-build-v1':JSON.stringify(builds)});
+ const backup=JSON.parse(h.values.get('life-os-before-v1-backup'));
+ assert.deepEqual(backup.planner,planner);assert.deepEqual(backup.buildItems,builds);
+ assert.equal(backup.session,undefined);assert.equal(backup.access_token,undefined);
+});
+test('newer Build edits and deletion markers survive stale devices',()=>{
+ const h=appHarness();
+ const old={id:'build-test',content:'old',at:'2026-10-27T10:00',duration:10,updatedAt:'2026-10-27T10:00:00Z'};
+ const fresh={...old,content:'new',duration:20,taskId:'task',projectId:'p',updatedAt:'2026-10-27T11:00:00Z'};
+ for(const merged of [h.api.mergeSnapshot({buildItems:[old]},{buildItems:[fresh],planner:{tasks:[]}}),h.api.mergeSnapshot({buildItems:[fresh]},{buildItems:[old],planner:{tasks:[]}})]) assert.equal(merged.buildItems.find(b=>b.id===old.id).duration,20);
+ const merged=h.api.mergeSnapshot({buildItems:[fresh]},{planner:{tasks:[],deletedBuildItems:[{key:old.id,deletedAt:'2026-10-27T12:00:00Z'}]}});
+ assert.ok(!merged.buildItems.some(b=>b.id===old.id));
+ h.api.applySnapshot(merged);assert.equal(h.api.snapshot().planner.deletedBuildItems.length,1);
+});
+test('two devices racing cloud writes retain both tasks and lifecycle entities after reconciliation',async()=>{
+ let remote={updated_at:'revision-0',payload:{planner:{tasks:[]},buildItems:[]}},revision=0,conflicts=0;
+ const a=appHarness(), b=appHarness();
+ for(const [h,name] of [[a,'a'],[b,'b']]) {
+  h.api.applySnapshot({planner:{tasks:[{id:name,title:`device-${name}`,date:'2026-10-27',done:false,updatedAt:'2026-10-27T10:00:00Z'}],goals:[{id:`goal-${name}`,title:`goal-${name}`,metric:'验收',updatedAt:'2026-10-27T10:00:00Z'}]}});
+  h.context.cloudConfigured=true;h.context.getCloudSession=()=>({access_token:'test'});
+  h.context.pullCloudSnapshot=async()=>JSON.parse(JSON.stringify(remote));
+  h.context.pushCloudSnapshot=async(payload,expected)=>{
+   if(expected!==remote.updated_at){conflicts++;throw Object.assign(new Error('concurrent write'),{code:'SYNC_CONFLICT'});}
+   remote={updated_at:`revision-${++revision}`,payload:JSON.parse(JSON.stringify(payload))};return true;
+  };
+ }
+ await Promise.all([a.api.syncNow(),b.api.syncNow()]);
+ await a.api.syncNow();await b.api.syncNow();
+ assert.ok(conflicts>=1);
+ for(const h of [a,b]) {
+  const state=h.api.snapshot();assert.equal(state.planner.tasks.length,2);assert.equal(state.planner.goals.length,2);
+  assert.ok(state.planner.tasks.every(t=>t.done===false));
+ }
+ assert.equal(remote.payload.planner.tasks.length,2);
 });

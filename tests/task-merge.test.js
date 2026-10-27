@@ -18,3 +18,18 @@ test("legacy snapshots keep past completed behavior", () => {
 test("different dates and modules remain distinct", () => {
   assert.equal(mergeTasks([{ ...base }, { ...base, date: "2026-10-28" }, { ...base, module: "Health OS" }]).length, 3);
 });
+test('stable task ID follows explicit rename and reschedule in either order',()=>{
+ const old={...base,done:true,updatedAt:'2026-10-27T08:00:00Z'};
+ const fresh={...base,date:'2026-10-28',title:'新任务名',done:false,note:'',projectId:'p',planId:'w',updatedAt:'2026-10-27T09:00:00Z'};
+ for(const merged of [mergeTasks([old,fresh]),mergeTasks([fresh,old])]) {
+  assert.equal(merged.length,1);assert.equal(merged[0].title,'新任务名');assert.equal(merged[0].planId,'w');assert.equal(merged[0].done,false);
+ }
+});
+test('explicit note clearing is preserved over stale copy',()=>{
+ const old={...base,note:'old note',updatedAt:'2026-10-27T08:00:00Z'};
+ const fresh={...base,note:'',updatedAt:'2026-10-27T09:00:00Z'};
+ assert.equal(mergeTasks([fresh,old])[0].note,'');
+});
+test('identical task names under different projects remain distinct',()=>{
+ assert.equal(mergeTasks([{...base,id:'a',projectId:'a'},{...base,id:'b',projectId:'b'}]).length,2);
+});
