@@ -86,9 +86,9 @@ function addMonthlyPlan(state) {
 }
 const CLOSED_RESUME_TASKS = new Set(["核对并修正两版简历工作时间","优化数据分析师主简历","压缩投放版描述并突出策略归因","核实简历成果数据与AI效率指标","确认两版最终投递简历"]);
 function reconcileConfirmedProgress(planner) {
-  planner.tasks = (planner.tasks || []).filter(t => !CLOSED_RESUME_TASKS.has(t.title));
+  planner.tasks = (planner.tasks || []).filter(t => stamp(t) !== null || !CLOSED_RESUME_TASKS.has(t.title));
   const titles = new Set(resumeSprint.filter(t => t.done === true).map(t => t.date + "|" + t.title));
-  planner.tasks = planner.tasks.map(t => titles.has(t.date + "|" + t.title) ? {...t, done:true} : t);
+  planner.tasks = planner.tasks.map(t => stamp(t) === null && titles.has(t.date + "|" + t.title) ? {...t, done:true} : t);
   return planner;
 }
 function addResumeSprint(state) {
@@ -151,15 +151,15 @@ function mergedDeletions(a = [], b = []) {
   for (const entry of [...a, ...b]) {
     if (!entry?.key || !Number.isFinite(Date.parse(entry.deletedAt || ""))) continue;
     const previous = map.get(entry.key);
-    if (!previous || entry.deletedAt > previous.deletedAt) map.set(entry.key, entry);
+    if (!previous || Date.parse(entry.deletedAt) > Date.parse(previous.deletedAt)) map.set(entry.key, entry);
   }
   return [...map.values()];
 }
 function withoutDeleted(tasks, deletions) {
   const removed = new Map(deletions.map(d => [d.key, Date.parse(d.deletedAt)]));
   return dedupeTasks(tasks).filter(t => {
-    const time = removed.get(taskIdentity(t));
-    if (time === undefined) return true;
+    const time = Math.max(removed.get(taskIdentity(t)) ?? -Infinity, removed.get(`id:${t.id}`) ?? -Infinity);
+    if (time === -Infinity) return true;
     const updated = Date.parse(t.updatedAt || "");
     return Number.isFinite(updated) && updated > time;
   });
@@ -263,12 +263,18 @@ async function syncNow() {
   }
   syncPending = false;
   const work = (async () => {
-    const row = await pullCloudSnapshot();
-    const merged = row?.payload ? mergeSnapshot(row.payload, snapshot()) : snapshot();
-    applySnapshot(merged);
-    const uploaded = await pushCloudSnapshot(merged);
-    if (!uploaded) throw new Error("Cloud session expired or upload was skipped");
-    return true;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const row = await pullCloudSnapshot();
+      const merged = row?.payload ? mergeSnapshot(row.payload, snapshot()) : snapshot();
+      applySnapshot(merged);
+      try {
+        const uploaded = await pushCloudSnapshot(merged, row?.updated_at ?? null);
+        if (!uploaded) throw new Error("Cloud session expired or upload was skipped");
+        return true;
+      } catch (error) {
+        if (error.code !== "SYNC_CONFLICT" || attempt === 2) throw error;
+      }
+    }
   })();
   syncInFlight = work;
   try { return await work; }
@@ -347,7 +353,8 @@ function openEditor(task={}, date=weekDates(state.weekStart)[0]) {
   const modal=document.querySelector("#modal");
   modal.querySelector("#cancelModal").onclick=()=>modal.remove();
   if (editing) modal.querySelector("#deleteTask").onclick=()=>{
-    state.deletedTasks = mergedDeletions(state.deletedTasks, [{ key: taskIdentity(task), deletedAt: new Date().toISOString() }]);
+    const deletedAt = new Date().toISOString();
+    state.deletedTasks = mergedDeletions(state.deletedTasks, [{ key: taskIdentity(task), deletedAt }, { key: `id:${task.id}`, deletedAt }]);
     state.tasks=state.tasks.filter(x=>x.id!==task.id); save(state); modal.remove(); renderCurrentView();
   };
   modal.querySelector("#taskForm").onsubmit=(e)=>{
@@ -362,7 +369,12 @@ function openEditor(task={}, date=weekDates(state.weekStart)[0]) {
       note: fd.get("note").trim(),
       updatedAt: new Date().toISOString()
     };
-    if (editing) state.tasks=state.tasks.map(x=>x.id===task.id?next:x);
+    if (editing) {
+      if (taskIdentity(task) !== taskIdentity(next)) {
+        state.deletedTasks = mergedDeletions(state.deletedTasks, [{key:taskIdentity(task),deletedAt:next.updatedAt}]);
+      }
+      state.tasks=state.tasks.map(x=>x.id===task.id?next:x);
+    }
     else state.tasks.push(next);
     save(state); modal.remove(); renderCurrentView();
   };
