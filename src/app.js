@@ -86,9 +86,9 @@ function addMonthlyPlan(state) {
 }
 const CLOSED_RESUME_TASKS = new Set(["核对并修正两版简历工作时间","优化数据分析师主简历","压缩投放版描述并突出策略归因","核实简历成果数据与AI效率指标","确认两版最终投递简历"]);
 function reconcileConfirmedProgress(planner) {
-  planner.tasks = (planner.tasks || []).filter(t => !CLOSED_RESUME_TASKS.has(t.title));
+  planner.tasks = (planner.tasks || []).filter(t => stamp(t) !== null || !CLOSED_RESUME_TASKS.has(t.title));
   const titles = new Set(resumeSprint.filter(t => t.done === true).map(t => t.date + "|" + t.title));
-  planner.tasks = planner.tasks.map(t => titles.has(t.date + "|" + t.title) ? {...t, done:true} : t);
+  planner.tasks = planner.tasks.map(t => stamp(t) === null && titles.has(t.date + "|" + t.title) ? {...t, done:true} : t);
   return planner;
 }
 function addResumeSprint(state) {
@@ -151,15 +151,15 @@ function mergedDeletions(a = [], b = []) {
   for (const entry of [...a, ...b]) {
     if (!entry?.key || !Number.isFinite(Date.parse(entry.deletedAt || ""))) continue;
     const previous = map.get(entry.key);
-    if (!previous || entry.deletedAt > previous.deletedAt) map.set(entry.key, entry);
+    if (!previous || Date.parse(entry.deletedAt) > Date.parse(previous.deletedAt)) map.set(entry.key, entry);
   }
   return [...map.values()];
 }
 function withoutDeleted(tasks, deletions) {
   const removed = new Map(deletions.map(d => [d.key, Date.parse(d.deletedAt)]));
   return dedupeTasks(tasks).filter(t => {
-    const time = removed.get(taskIdentity(t));
-    if (time === undefined) return true;
+    const time = Math.max(removed.get(taskIdentity(t)) ?? -Infinity, removed.get(`id:${t.id}`) ?? -Infinity);
+    if (time === -Infinity) return true;
     const updated = Date.parse(t.updatedAt || "");
     return Number.isFinite(updated) && updated > time;
   });
@@ -214,11 +214,24 @@ function mergeSnapshot(cloudPayload = {}, localPayload = snapshot()) {
   const planner = {
     ...cloudPlanner,
     ...localPlanner,
-    todayFocus: {...(cloudPlanner.todayFocus || {}), ...(localPlanner.todayFocus || {})},
+    todayFocus: mergeDailyValues(cloudPlanner.todayFocus, localPlanner.todayFocus, cloudPlanner.focusUpdatedAt, localPlanner.focusUpdatedAt),
+    focusUpdatedAt: mergeDailyValues(cloudPlanner.focusUpdatedAt, localPlanner.focusUpdatedAt, cloudPlanner.focusUpdatedAt, localPlanner.focusUpdatedAt),
+    dailyNotes: mergeDailyValues(cloudPlanner.dailyNotes, localPlanner.dailyNotes, cloudPlanner.noteUpdatedAt, localPlanner.noteUpdatedAt),
+    noteUpdatedAt: mergeDailyValues(cloudPlanner.noteUpdatedAt, localPlanner.noteUpdatedAt, cloudPlanner.noteUpdatedAt, localPlanner.noteUpdatedAt),
+    dailyReviews: mergeDailyValues(cloudPlanner.dailyReviews, localPlanner.dailyReviews,
+      reviewStamps(cloudPlanner.dailyReviews), reviewStamps(localPlanner.dailyReviews)),
     deletedTasks: mergedDeletions(cloudPlanner.deletedTasks, localPlanner.deletedTasks),
     tasks: []
   };
   planner.tasks = withoutDeleted([...(cloudPlanner.tasks || []), ...(localPlanner.tasks || [])], planner.deletedTasks);
+  // Older devices generated different UUIDs for the same seeded task.
+  for (const [day, selected] of Object.entries(planner.todayFocus)) {
+    const sourceTasks = [...(cloudPlanner.tasks || []), ...(localPlanner.tasks || [])];
+    planner.todayFocus[day] = [...new Set((Array.isArray(selected) ? selected : []).map(ref => {
+      const original = sourceTasks.find(t => t.id === ref);
+      return planner.tasks.find(t => t.date === day && (t.id === ref || (original && taskIdentity(t) === taskIdentity(original))))?.id || ref;
+    }).filter(Boolean))];
+  }
   reconcileConfirmedProgress(planner);
   const builds = addVerifiedBuildSeeds(mergeByKey(
     cloudPayload.buildItems || [],
@@ -228,6 +241,37 @@ function mergeSnapshot(cloudPayload = {}, localPayload = snapshot()) {
   return { version: 1, planner, buildItems: builds,
     agentResults: mergeAgentResults(cloudPayload.agentResults, localPayload.agentResults),
     savedAt: new Date().toISOString() };
+}
+function reviewStamps(reviews = {}) {
+  return Object.fromEntries(Object.entries(reviews).map(([day, review]) => [day, review?.updatedAt]));
+}
+function mergeDailyValues(cloud = {}, local = {}, cloudStamps = {}, localStamps = {}) {
+  const merged = {...cloud};
+  for (const [day, value] of Object.entries(local)) {
+    const a = Date.parse(cloudStamps[day]) || 0, b = Date.parse(localStamps[day]) || 0;
+    if (!(day in merged) || b > a || (a === b && (a === 0 || JSON.stringify(value) > JSON.stringify(merged[day])))) merged[day] = value;
+  }
+  return merged;
+}
+function toggleTodayFocus(taskId, day = iso(new Date())) {
+  const valid = state.tasks.filter(t => t.date === day);
+  const selected = ((state.todayFocus || {})[day] || []).filter(ref => valid.some(t => t.id === ref));
+  if (!valid.some(t => t.id === taskId)) return false;
+  if (!selected.includes(taskId) && selected.length >= 3) return false;
+  state.todayFocus = {...state.todayFocus, [day]: selected.includes(taskId) ? selected.filter(ref => ref !== taskId) : [...selected, taskId]};
+  state.focusUpdatedAt = {...state.focusUpdatedAt, [day]:new Date().toISOString()};
+  save(state);
+  return true;
+}
+function carryTask(taskId, targetDay = iso(new Date())) {
+  const source = state.tasks.find(t => t.id === taskId);
+  if (!source || source.done || source.date >= targetDay) return false;
+  const key = taskIdentity({...source, date:targetDay});
+  if (state.tasks.some(t => taskIdentity(t) === key)) return false;
+  state.tasks.push({...source, id:id(), date:targetDay, done:false,
+    carriedFrom:source.id, carriedFromDate:source.date, updatedAt:new Date().toISOString()});
+  save(state);
+  return true;
 }
 function applySnapshot(payload) {
   if (!payload) return;
@@ -264,12 +308,18 @@ async function syncNow() {
   }
   syncPending = false;
   const work = (async () => {
-    const row = await pullCloudSnapshot();
-    const merged = row?.payload ? mergeSnapshot(row.payload, snapshot()) : snapshot();
-    applySnapshot(merged);
-    const uploaded = await pushCloudSnapshot(merged);
-    if (!uploaded) throw new Error("Cloud session expired or upload was skipped");
-    return true;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const row = await pullCloudSnapshot();
+      const merged = row?.payload ? mergeSnapshot(row.payload, snapshot()) : snapshot();
+      applySnapshot(merged);
+      try {
+        const uploaded = await pushCloudSnapshot(merged, row?.updated_at ?? null);
+        if (!uploaded) throw new Error("Cloud session expired or upload was skipped");
+        return true;
+      } catch (error) {
+        if (error.code !== "SYNC_CONFLICT" || attempt === 2) throw error;
+      }
+    }
   })();
   syncInFlight = work;
   try { return await work; }
@@ -348,7 +398,8 @@ function openEditor(task={}, date=weekDates(state.weekStart)[0]) {
   const modal=document.querySelector("#modal");
   modal.querySelector("#cancelModal").onclick=()=>modal.remove();
   if (editing) modal.querySelector("#deleteTask").onclick=()=>{
-    state.deletedTasks = mergedDeletions(state.deletedTasks, [{ key: taskIdentity(task), deletedAt: new Date().toISOString() }]);
+    const deletedAt = new Date().toISOString();
+    state.deletedTasks = mergedDeletions(state.deletedTasks, [{ key: taskIdentity(task), deletedAt }, { key: `id:${task.id}`, deletedAt }]);
     state.tasks=state.tasks.filter(x=>x.id!==task.id); save(state); modal.remove(); renderCurrentView();
   };
   modal.querySelector("#taskForm").onsubmit=(e)=>{
@@ -363,7 +414,12 @@ function openEditor(task={}, date=weekDates(state.weekStart)[0]) {
       note: fd.get("note").trim(),
       updatedAt: new Date().toISOString()
     };
-    if (editing) state.tasks=state.tasks.map(x=>x.id===task.id?next:x);
+    if (editing) {
+      if (taskIdentity(task) !== taskIdentity(next)) {
+        state.deletedTasks = mergedDeletions(state.deletedTasks, [{key:taskIdentity(task),deletedAt:next.updatedAt}]);
+      }
+      state.tasks=state.tasks.map(x=>x.id===task.id?next:x);
+    }
     else state.tasks.push(next);
     save(state); modal.remove(); renderCurrentView();
   };
@@ -538,10 +594,12 @@ function renderDay() {
   const maxModule = Math.max(...moduleMinutes.map(x=>x.minutes),1);
   const dailyNotes = state.dailyNotes || {};
   const note = dailyNotes[today] || "";
-  const todayFocus = (state.todayFocus || {})[today] || [];
+  const todayFocus = ((state.todayFocus || {})[today] || []).filter(ref => tasks.some(t => t.id === ref)).slice(0,3);
   const focusTasks = tasks.filter(t=>todayFocus.includes(t.id));
   const remainingMinutes = Math.max(0,300-totalMinutes);
   const attainment = Math.min(100,Math.round(totalMinutes/300*100));
+  const review = (state.dailyReviews || {})[today] || {};
+  const overdue = state.tasks.filter(t => !t.done && t.date < today && !tasks.some(current => taskIdentity(current) === taskIdentity({...t,date:today})));
 
   document.querySelector("#app").innerHTML = `
     <main class="shell">
@@ -629,6 +687,20 @@ function renderDay() {
         <textarea id="dailyNote" maxlength="280" placeholder="留一句就够了。">${escapeHtml(note)}</textarea>
         <div class="day-note-foot"><span id="noteStatus">自动保存到 Life OS</span><span>${note.length}/280</span></div>
       </section>
+      <section class="day-panel">
+        <h3>日终复盘</h3>
+        <p>已完成 ${doneTasks.length}/${tasks.length} 件 · 真实投入 ${fmtDuration(totalMinutes)}</p>
+        <form id="dailyReviewForm" class="sync-form">
+          <label>今天推进了什么？<textarea name="summary" maxlength="1000">${escapeHtml(review.summary || "")}</textarea></label>
+          <label>明天的下一步<input name="nextStep" maxlength="280" value="${escapeHtml(review.nextStep || "")}" /></label>
+          <button class="btn primary">保存复盘</button><span id="reviewStatus">${review.updatedAt ? "已保存" : "尚未复盘"}</span>
+        </form>
+      </section>
+      <section class="day-panel">
+        <h3>未完成任务结转</h3>
+        <p>由你逐项选择，原日期记录会保留；结转不会生成投入时间。</p>
+        ${overdue.length ? overdue.map(t=>`<div class="day-build-item"><div><strong>${escapeHtml(t.title)}</strong><small>${escapeHtml(t.date)} · ${escapeHtml(t.module || "")}</small></div><button class="btn" data-carry-task="${escapeHtml(t.id)}">安排到今天</button></div>`).join("") : '<p>没有待结转任务。</p>'}
+      </section>
     </main>`;
 
   bindNavigation();
@@ -638,12 +710,7 @@ function renderDay() {
     renderDay();
   });
   document.querySelectorAll("[data-day-focus]").forEach(el=>el.onclick=()=>{
-    const selected=(state.todayFocus || {})[today] || [];
-    const taskId=el.dataset.dayFocus;
-    if (!selected.includes(taskId) && selected.length >= 3) { alert("每日最多设置 3 件重点任务"); return; }
-    const next=selected.includes(taskId)?selected.filter(x=>x!==taskId):[...selected,taskId];
-    state.todayFocus={...(state.todayFocus||{}),[today]:next};
-    save(state);
+    if (!toggleTodayFocus(el.dataset.dayFocus,today)) { alert("每日最多设置 3 件重点任务"); return; }
     renderDay();
   });
   document.querySelectorAll("[data-day-edit]").forEach(el=>el.onclick=()=>openEditor(state.tasks.find(t=>t.id===el.dataset.dayEdit), today));
@@ -651,17 +718,22 @@ function renderDay() {
   document.querySelector("[data-jump-build]").onclick=()=>{currentView="build"; renderBuild();};
 
   const noteEl=document.querySelector("#dailyNote");
-  let noteTimer=null;
   noteEl.oninput=()=>{
     const value=noteEl.value;
     document.querySelector(".day-note-foot span:last-child").textContent=`${value.length}/280`;
     document.querySelector("#noteStatus").textContent="保存中…";
-    clearTimeout(noteTimer);
-    noteTimer=setTimeout(()=>{
       state.dailyNotes={...(state.dailyNotes||{}),[today]:value};
+      state.noteUpdatedAt={...(state.noteUpdatedAt||{}),[today]:new Date().toISOString()};
       save(state);
       document.querySelector("#noteStatus").textContent="已保存 · 会随云同步备份";
-    },450);
+  };
+  document.querySelectorAll("[data-carry-task]").forEach(el=>el.onclick=()=>{carryTask(el.dataset.carryTask,today);renderDay();});
+  document.querySelector("#dailyReviewForm").onsubmit=e=>{
+    e.preventDefault();
+    const fd=new FormData(e.currentTarget);
+    state.dailyReviews={...state.dailyReviews,[today]:{summary:String(fd.get("summary") || "").trim().slice(0,1000),nextStep:String(fd.get("nextStep") || "").trim().slice(0,280),updatedAt:new Date().toISOString()}};
+    save(state);
+    document.querySelector("#reviewStatus").textContent="已保存 · 会随云同步备份";
   };
 }
 

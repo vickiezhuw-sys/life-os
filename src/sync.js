@@ -42,7 +42,9 @@ async function jsonRequest(url, options = {}) {
   try { body = text ? JSON.parse(text) : null; } catch { body = text; }
   if (!res.ok) {
     const message = body?.msg || body?.message || body?.error_description || body?.error || `HTTP ${res.status}`;
-    throw new Error(message);
+    const error = new Error(message);
+    error.status = res.status;
+    throw error;
   }
   return body;
 }
@@ -110,22 +112,36 @@ export async function pullCloudSnapshot() {
     throw error;
   }
 }
-export async function pushCloudSnapshot(payload) {
+export async function pushCloudSnapshot(payload, expectedUpdatedAt = null) {
   if (!cloudConfigured) return false;
   const session = await refreshSessionIfNeeded();
   const uid = userId(session);
   if (!session?.access_token || !uid) return false;
   setCloudMeta({ status: "syncing", error: null });
   try {
-    const updatedAt = new Date().toISOString();
-    await jsonRequest(`${SUPABASE_URL}/rest/v1/life_os_state?on_conflict=user_id`, {
-      method: "POST",
+    // Compare-and-swap using the existing timestamp column; no schema migration.
+    const updatedAt = new Date(Math.max(Date.now(), (Date.parse(expectedUpdatedAt) || 0) + 1)).toISOString();
+    const query = expectedUpdatedAt === null ? "" : `?user_id=eq.${encodeURIComponent(uid)}&updated_at=eq.${encodeURIComponent(expectedUpdatedAt)}`;
+    let rows;
+    try {
+      rows = await jsonRequest(`${SUPABASE_URL}/rest/v1/life_os_state${query}`, {
+      method: expectedUpdatedAt === null ? "POST" : "PATCH",
       headers: {
         ...authHeaders(session.access_token),
-        Prefer: "resolution=merge-duplicates,return=minimal"
+        Prefer: "return=representation"
       },
       body: JSON.stringify({ user_id: uid, payload, updated_at: updatedAt })
-    });
+      });
+    } catch (error) {
+      if (error.status !== 409) throw error;
+      error.code = "SYNC_CONFLICT";
+      throw error;
+    }
+    if (!Array.isArray(rows) || rows.length !== 1) {
+      const error = new Error("云端已有新修改，请重试同步；本地数据已保留");
+      error.code = "SYNC_CONFLICT";
+      throw error;
+    }
     setCloudMeta({ status: "synced", lastSyncedAt: updatedAt, error: null });
     return true;
   } catch (error) {

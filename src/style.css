@@ -205,7 +205,7 @@ h1 { margin:4px 0 0; font-size:28px; line-height:1.15; font-weight:680; }
 .day-panel p { color:#746e64; margin:0; font-size:13px; }
 .day-panel-head { display:flex; justify-content:space-between; gap:16px; align-items:center; }
 .day-focus-list { margin-top:12px; }
-.day-focus-item { display:grid; grid-template-columns:auto 1fr auto; gap:10px; align-items:flex-start; padding:14px 0; border-top:1px solid #e2dbcf; }
+.day-focus-item { display:grid; grid-template-columns:auto minmax(0,1fr) auto auto; gap:10px; align-items:flex-start; padding:14px 0; border-top:1px solid #e2dbcf; }
 .day-focus-item.done strong { text-decoration:line-through; color:#91897d; }
 .day-focus-copy { display:grid; gap:6px; }
 .day-focus-copy strong { font-size:14px; line-height:1.45; }
@@ -238,3 +238,12 @@ h1 { margin:4px 0 0; font-size:28px; line-height:1.15; font-weight:680; }
 .agent-card li { font-size:13px; line-height:1.7; margin:6px 0; overflow-wrap:anywhere; }
 .agent-preview { margin-top:24px; border-left:3px solid #746d62; padding-left:16px; }
 .view-tabs { flex-wrap:wrap; }
+.day-panel + .day-panel { margin-top:12px; }
+#dailyReviewForm label { display:grid; gap:8px; min-width:0; }
+#dailyReviewForm textarea { width:100%; min-height:100px; resize:vertical; border:1px solid #cfc5b6; border-radius:12px; padding:12px; background:#fffdf8; }
+.day-focus-copy, .day-build-item > div { min-width:0; overflow-wrap:anywhere; }
+@media (max-width:480px) {
+  .day-focus-item { grid-template-columns:auto minmax(0,1fr) auto; }
+  .day-focus-item [data-day-edit] { grid-column:3; }
+  .day-build-item { flex-wrap:wrap; }
+}
