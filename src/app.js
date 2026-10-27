@@ -144,8 +144,29 @@ function dedupeTasks(tasks = []) {
   return mergeTasks(tasks);
 }
 
+// Tombstones prevent tasks deleted on one device from being revived by stale cloud copies.
+// Identity is stable for the same date/module/title; use the latest explicit edit.
+function mergedDeletions(a = [], b = []) {
+  const map = new Map();
+  for (const entry of [...a, ...b]) {
+    if (!entry?.key || !Number.isFinite(Date.parse(entry.deletedAt || ""))) continue;
+    const previous = map.get(entry.key);
+    if (!previous || entry.deletedAt > previous.deletedAt) map.set(entry.key, entry);
+  }
+  return [...map.values()];
+}
+function withoutDeleted(tasks, deletions) {
+  const removed = new Map(deletions.map(d => [d.key, Date.parse(d.deletedAt)]));
+  return dedupeTasks(tasks).filter(t => {
+    const time = removed.get(taskIdentity(t));
+    if (time === undefined) return true;
+    const updated = Date.parse(t.updatedAt || "");
+    return Number.isFinite(updated) && updated > time;
+  });
+}
 function normalizePlanner(planner) {
-  return reconcileConfirmedProgress({...planner, tasks: dedupeTasks(planner.tasks || [])});
+  const deletedTasks = mergedDeletions(planner.deletedTasks || []);
+  return reconcileConfirmedProgress({...planner, deletedTasks, tasks: withoutDeleted(planner.tasks || [], deletedTasks)});
 }
 function load() {
   try {
@@ -155,18 +176,18 @@ function load() {
       addCurrentPlan(v);
       addMonthlyPlan(v);
       addResumeSprint(v);
-      v.tasks = dedupeTasks(v.tasks);
+      v.tasks = withoutDeleted(v.tasks, v.deletedTasks || []);
       save(v);
       return v;
     }
   } catch {}
   const v = addResumeSprint(addMonthlyPlan(addCurrentPlan({ weekStart: currentWeekStart(), tasks: seed() })));
-  v.tasks = dedupeTasks(v.tasks);
+  v.tasks = withoutDeleted(v.tasks, v.deletedTasks || []);
   save(v);
   return v;
 }
 function save(state) {
-  state.tasks = dedupeTasks(state.tasks);
+  state.tasks = withoutDeleted(state.tasks, state.deletedTasks || []);
   localStorage.setItem(STORE_KEY, JSON.stringify(state));
   if (cloudSyncReady) queueCloudSync();
 }
@@ -193,11 +214,10 @@ function mergeSnapshot(cloudPayload = {}, localPayload = snapshot()) {
   const planner = {
     ...cloudPlanner,
     ...localPlanner,
-    tasks: dedupeTasks([
-      ...(cloudPlanner.tasks || []),
-      ...(localPlanner.tasks || [])
-    ])
+    deletedTasks: mergedDeletions(cloudPlanner.deletedTasks, localPlanner.deletedTasks),
+    tasks: []
   };
+  planner.tasks = withoutDeleted([...(cloudPlanner.tasks || []), ...(localPlanner.tasks || [])], planner.deletedTasks);
   reconcileConfirmedProgress(planner);
   const builds = addVerifiedBuildSeeds(mergeByKey(
     cloudPayload.buildItems || [],
@@ -300,6 +320,7 @@ function openEditor(task={}, date=weekDates(state.weekStart)[0]) {
   const modal=document.querySelector("#modal");
   modal.querySelector("#cancelModal").onclick=()=>modal.remove();
   if (editing) modal.querySelector("#deleteTask").onclick=()=>{
+    state.deletedTasks = mergedDeletions(state.deletedTasks, [{ key: taskIdentity(task), deletedAt: new Date().toISOString() }]);
     state.tasks=state.tasks.filter(x=>x.id!==task.id); save(state); modal.remove(); renderCurrentView();
   };
   modal.querySelector("#taskForm").onsubmit=(e)=>{
