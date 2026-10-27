@@ -8,6 +8,7 @@ import resumeSprint from "./sprint-01-resume-plan.json";
 import { cloudConfigured, getCloudSession, getCloudMeta, signIn, signUp, signOut, pullCloudSnapshot, pushCloudSnapshot } from "./sync.js";
 import { normalizeLifecycle, mergeLifecycle, mergeRecords, linkedTask, upsertEntity, validDay, canCarryTask } from "./lifecycle.js";
 import { usageGuideHtml } from "./usage-guide.js";
+import { createExecution, taskEffort } from "./execution.js";
 import { renderLifecycle } from "./lifecycle-view.js";
 import { taskIdentity, stamp, mergeTasks } from "./task-merge.js";
 
@@ -32,7 +33,8 @@ if (!localStorage.getItem(PRE_V1_BACKUP_KEY)) {
 }
 const VIEWS=['day','planner','month','build','goals','review','agents','sync'];
 let currentView = typeof location !== 'undefined' && VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'day';
-let statsRange = "day";
+let statsRange = "month";
+let statsDate = iso(new Date());
 let statsModule = "all";
 let cloudSyncReady = false;
 let syncTimer = null;
@@ -338,7 +340,7 @@ async function initializeCloudSync() {
 }
 function renderCurrentView() {
   if (currentView === "day") renderDay();
-  else if (currentView === "build") renderBuild();
+  else if (currentView === "build") {currentView='month';if(typeof history!=='undefined') history.replaceState(null,'','#month');renderMonth();}
   else if (currentView === "month") renderMonth();
   else if (currentView === "sync") renderSync();
   else if (currentView === "agents") renderAgents();
@@ -351,7 +353,6 @@ function navHtml(active) {
     ["day", "Day"],
     ["planner", "Weekly"],
     ["month", "Month"],
-    ["build", "Build"],
     ["goals", "目标与计划"],
     ["review", "周月复盘"],
     ["agents", "Agents"],
@@ -526,7 +527,7 @@ function sameDay(a,b) {
 }
 function inRange(item, range) {
   const x = new Date(item.at);
-  const now = new Date();
+  const now = d(statsDate);
   if (range==="day") return sameDay(x, now);
   if (range==="week") {
     const s=startOfWeek(now), e=new Date(s); e.setDate(e.getDate()+7);
@@ -553,6 +554,28 @@ function moduleOptions(selected = "") {
   return `<option value="" ${!selected ? "selected" : ""} disabled>选择 OS 分类</option>` +
     MODULES.map(([name])=>`<option value="${name}" ${selected===name ? "selected" : ""}>${name}</option>`).join("");
 }
+function recordEffort(input) {
+  const entry=createExecution(input,state.tasks,id);
+  buildItems.unshift(entry);
+  saveBuild(buildItems);
+  return entry;
+}
+function openEffort(task) {
+  document.body.insertAdjacentHTML('beforeend',`<div class="modal-backdrop" id="effortModal"><form class="modal" id="effortForm"><h4>${task?'记录任务投入':'记录临时事项'}</h4>${task?`<p>${escapeHtml(task.title)}</p><p class="muted">可以多次记录。记录时长后，任务完成状态保持不变。</p>`:''}<div class="field"><label for="effortContent">本次做了什么</label><input id="effortContent" name="content" maxlength="1000" value="${escapeHtml(task?.title || '')}" required /></div><div class="field"><label for="effortAt">开始时间</label><input id="effortAt" name="at" type="datetime-local" value="${nowLocalInput()}" required /></div><div class="field"><label for="effortDuration">实际投入（分钟）</label><input id="effortDuration" name="duration" type="number" min="0.1" max="1440" step="0.1" inputmode="decimal" required /></div>${task?'':`<div class="field"><label for="effortModule">事项分类</label><select id="effortModule" name="module" required>${moduleOptions()}</select></div><div class="field"><label for="effortProject">关联项目（可选）</label><select id="effortProject" name="projectId">${projectOptions()}</select></div>`}<p id="effortError" class="sync-error" role="alert" hidden></p><div class="modal-actions"><button type="button" class="btn" id="cancelEffort">取消</button><button class="btn primary">保存投入</button></div></form></div>`);
+  const modal=document.querySelector('#effortModal');
+  modal.querySelector('#cancelEffort').onclick=()=>modal.remove();
+  let submitted=false;
+  modal.querySelector('#effortForm').onsubmit=e=>{
+    e.preventDefault();if(submitted) return;
+    try {
+      const fd=new FormData(e.currentTarget);
+      const projectId=task?.projectId || fd.get('projectId') || '';
+      if(projectId && !(state.projects || []).some(p=>p.id===projectId)) throw new Error('关联项目不存在');
+      recordEffort({...Object.fromEntries(fd),taskId:task?.id || '',projectId});
+      submitted=true;modal.remove();renderDay();
+    } catch(error) {const el=modal.querySelector('#effortError');el.hidden=false;el.textContent=error.message;}
+  };
+}
 function editBuild(item) {
   const modal = document.createElement("div");
   modal.className = "modal-backdrop";
@@ -576,11 +599,11 @@ function editBuild(item) {
     const updated={...item,...links,content:fd.get("content").trim(),at:fd.get("at"),duration:fd.get("duration") ? Number(fd.get("duration")) : 0,module:fd.get("module"),updatedAt:new Date().toISOString()};
     if (!updated.content || !validDay(String(updated.at).slice(0,10)) || !Number.isFinite(updated.duration) || updated.duration<0 || updated.duration>1440) {alert('请检查记录内容、日期和时长');return;}
     buildItems=buildItems.map(x=>x.id===item.id ? updated : x);
-    saveBuild(buildItems); modal.remove(); renderBuild();
+    saveBuild(buildItems); modal.remove(); renderCurrentView();
   };
 }
 function durationChart(items, range) {
-  const now = new Date();
+  const now = d(statsDate);
   let labels = [], keys = [];
   if (range === "day") {
     keys = Array.from({length:24}, (_,i)=>i);
@@ -621,11 +644,6 @@ function renderDay() {
     .filter(x=>String(x.at || "").slice(0,10)===today)
     .sort((a,b)=>new Date(b.at)-new Date(a.at));
   const totalMinutes = todayBuild.reduce((sum,x)=>sum+durationMinutes(x),0);
-  const moduleMinutes = MODULES.map(([name,sub])=>({
-    name, sub,
-    minutes: todayBuild.filter(x=>x.module===name).reduce((sum,x)=>sum+durationMinutes(x),0)
-  })).filter(x=>x.minutes>0);
-  const maxModule = Math.max(...moduleMinutes.map(x=>x.minutes),1);
   const dailyNotes = state.dailyNotes || {};
   const note = dailyNotes[today] || "";
   const todayFocus = ((state.todayFocus || {})[today] || []).filter(ref => tasks.some(t => t.id === ref)).slice(0,3);
@@ -678,6 +696,8 @@ function renderDay() {
                   ${t.note?`<small>${escapeHtml(t.note)}</small>`:""}
                   <span class="badge">${t.module}</span>
                   ${t.projectId?`<small>项目：${escapeHtml((state.projects || []).find(p=>p.id===t.projectId)?.title || '关联记录待同步')}</small>`:''}
+                  <small class="task-effort">今日 ${fmtDuration(taskEffort(buildItems,t.id,today).today)} · 累计 ${fmtDuration(taskEffort(buildItems,t.id,today).total)}</small>
+                  <button class="btn task-effort-button" data-record-effort="${escapeHtml(t.id)}">＋ 记录投入</button>
                 </div>
                 <button class="edit" data-day-focus="${t.id}" aria-pressed="${todayFocus.includes(t.id)}">${todayFocus.includes(t.id)?"★ 重点":"☆ 设为重点"}</button><button class="edit" data-day-edit="${t.id}">编辑</button>
               </div>
@@ -686,19 +706,10 @@ function renderDay() {
         </article>
 
         <article class="day-panel day-build-summary">
-          <div class="brand-kicker">BUILD TODAY</div>
+          <div class="brand-kicker">今日投入</div>
           <h3>${fmtDuration(totalMinutes)}</h3>
           <p>${todayBuild.length} 条记录 · 今天真实发生的投入</p>
-          <div class="day-module-bars">
-            ${moduleMinutes.length ? moduleMinutes.map(x=>`
-              <div class="day-module-row">
-                <span>${x.name}</span>
-                <div class="module-bar-track"><div class="module-bar-fill" style="width:${Math.max(7,x.minutes/maxModule*100)}%"></div></div>
-                <strong>${fmtDuration(x.minutes)}</strong>
-              </div>
-            `).join("") : `<div class="day-empty compact">今天还没有 Build 记录。</div>`}
-          </div>
-          <button class="btn primary" data-jump-build>记录一条 Build</button>
+          <button class="btn primary" id="recordUnplannedEffort">＋ 记录临时事项</button><p class="muted">任务投入直接在左侧任务中记录；统计和历史在 Month 查看。</p>
         </article>
       </section>
 
@@ -712,9 +723,9 @@ function renderDay() {
               <strong>${escapeHtml(x.content)}</strong>
               <small>${fmtBuildTime(x.at)} · ${fmtDuration(durationMinutes(x))}</small>
             </div>
-            <span class="badge">${x.module || "未分类"}</span>
+            <div class="actions"><span class="badge">${escapeHtml(x.module || "未分类")}</span><button class="edit" data-edit-effort="${escapeHtml(x.id)}">编辑投入</button></div>
           </div>
-        `).join("") : `<div class="day-empty">做完一件值得留下的事，再回来记 Build。</div>`}
+        `).join("") : `<div class="day-empty">任务执行后点击「记录投入」，临时事项也可以单独记录。</div>`}
       </section>
 
       <section class="day-panel day-note">
@@ -757,7 +768,9 @@ function renderDay() {
   });
   document.querySelectorAll("[data-day-edit]").forEach(el=>el.onclick=()=>openEditor(state.tasks.find(t=>t.id===el.dataset.dayEdit), today));
   document.querySelector("#addTodayTask").onclick=()=>openEditor({}, today);
-  document.querySelector("[data-jump-build]").onclick=()=>{currentView="build"; renderBuild();};
+  document.querySelector('#recordUnplannedEffort').onclick=()=>openEffort();
+  document.querySelectorAll('[data-record-effort]').forEach(el=>el.onclick=()=>openEffort(state.tasks.find(t=>t.id===el.dataset.recordEffort)));
+  document.querySelectorAll('[data-edit-effort]').forEach(el=>el.onclick=()=>editBuild(buildItems.find(b=>b.id===el.dataset.editEffort)));
 
   const noteEl=document.querySelector("#dailyNote");
   noteEl.oninput=()=>{
@@ -780,7 +793,7 @@ function renderDay() {
   };
 }
 
-function renderBuild() {
+function executionStatisticsHtml() {
   const filtered = buildItems.filter(x=>inRange(x, statsRange) && (statsModule === "all" || x.module === statsModule)).sort((a,b)=>new Date(b.at)-new Date(a.at));
   const byDate = {};
   for (const x of filtered) {
@@ -788,39 +801,14 @@ function renderBuild() {
     (byDate[key] ||= []).push(x);
   }
   const totalMinutes = filtered.reduce((sum,x)=>sum+durationMinutes(x),0);
-  document.querySelector("#app").innerHTML = `
-    <main class="shell">
-      <header class="topbar">
-        <div><div class="brand-kicker">L ↗ Life OS</div><h1>我的人生操作系统</h1></div>
-        ${navHtml("build")}
-      </header>
-
-      <section class="build-hero">
-        <div>
-          <div class="brand-kicker">BUILD LOG</div>
-          <h2>把做过的事，留下来。</h2>
-          <p>记录做了什么、开始时间和投入时长。</p>
-        </div>
-        <form class="capture" id="buildForm">
-          <div class="capture-main">
-            <input name="content" autocomplete="off" placeholder="刚刚做了什么？" required />
-            <input name="at" type="datetime-local" value="${nowLocalInput()}" required />
-            <input name="duration" type="number" inputmode="numeric" min="1" max="1440" step="1" placeholder="时长（分钟）" aria-label="时长（分钟）" required />
-            <select name="module" aria-label="OS 分类" required>${moduleOptions()}</select>
-            <select name="taskId" aria-label="关联任务">${taskLinkOptions()}</select>
-            <select name="projectId" aria-label="关联项目">${projectOptions()}</select>
-          </div>
-          <button class="btn primary">记录</button>
-        </form>
-      </section>
-
+  return `<section class="execution-statistics" aria-label="投入统计与历史记录"><h2>投入统计与历史记录</h2><p class="muted">在 Day 记录实际执行，在这里按日期、周期和分类查看；原有投入记录全部保留。</p>
       <section class="build-stats">
         <div class="stats-head">
           <div>
             <div class="brand-kicker">STATISTICS</div>
             <h3>${filtered.length} 条记录</h3>
           </div>
-          <div class="stats-filters"><label for="statsModule">分类</label><select id="statsModule" aria-label="筛选 OS 分类">
+          <div class="stats-filters"><label for="statsDate">日期</label><input id="statsDate" aria-label="统计周期日期" type="date" value="${statsDate}" /><label for="statsModule">分类</label><select id="statsModule" aria-label="筛选 OS 分类">
             <option value="all">全部 OS</option>
             ${MODULES.map(([name])=>`<option value="${name}" ${statsModule===name ? "selected" : ""}>${name}</option>`).join("")}
           </select><div class="range-tabs">
@@ -848,26 +836,19 @@ function renderBuild() {
           </article>
         `).join("") : `<div class="build-empty">这个时间范围还没有记录。先写下第一条。</div>`}
       </section>
-    </main>
+    </section>
   `;
-  bindNavigation();
-  document.querySelector("#buildForm").onsubmit=(e)=>{
-    e.preventDefault();
-    const fd=new FormData(e.currentTarget);
-    let links; try {links=buildLinks(fd);} catch(error) {alert(error.message);return;}
-    const entry={id:id(),...links, content:fd.get("content").trim(), at:fd.get("at"), duration:Number(fd.get("duration")), module:fd.get("module"),updatedAt:new Date().toISOString()};
-    if (!entry.content || !validDay(String(entry.at).slice(0,10)) || !Number.isFinite(entry.duration) || entry.duration<=0 || entry.duration>1440) {alert('请检查记录内容、日期和时长');return;}
-    buildItems.unshift(entry);
-    saveBuild(buildItems); renderBuild();
-  };
-  document.querySelectorAll("[data-range]").forEach(el=>el.onclick=()=>{statsRange=el.dataset.range; renderBuild();});
-  document.querySelector("#statsModule").onchange=e=>{statsModule=e.target.value; renderBuild();};
+}
+function bindExecutionStatistics() {
+  document.querySelectorAll("[data-range]").forEach(el=>el.onclick=()=>{statsRange=el.dataset.range; renderMonth();});
+  document.querySelector('#statsDate').onchange=e=>{if(validDay(e.target.value)){statsDate=e.target.value;renderMonth();}};
+  document.querySelector("#statsModule").onchange=e=>{statsModule=e.target.value; renderMonth();};
   document.querySelectorAll("[data-edit-build]").forEach(el=>el.onclick=()=>editBuild(buildItems.find(x=>x.id===el.dataset.editBuild)));
   document.querySelectorAll("[data-delete-build]").forEach(el=>el.onclick=()=>{
     state.deletedBuildItems=mergedDeletions(state.deletedBuildItems,[{key:el.dataset.deleteBuild,deletedAt:new Date().toISOString()}]);
     save(state);
     buildItems=buildItems.filter(x=>x.id!==el.dataset.deleteBuild);
-    saveBuild(buildItems); renderBuild();
+    saveBuild(buildItems); renderMonth();
   });
 }
 
@@ -895,6 +876,7 @@ function renderMonth() {
         <div><div class="brand-kicker">L ↗ Life OS</div><h1>我的人生操作系统</h1></div>
         ${navHtml("month")}
       </header>
+      ${executionStatisticsHtml()}
       <section class="month-hero">
         <div class="brand-kicker">MONTHLY OPERATING PAGE · ${monthPlan.label}</div>
         <h2>${escapeHtml(monthPlan.title)}</h2>
@@ -909,7 +891,7 @@ function renderMonth() {
       </section>
       <section class="month-grid">
         <article class="month-panel">
-          <div class="brand-kicker">BUILD THIS MONTH</div>
+          <div class="brand-kicker">本月投入</div>
           <h3>${fmtDuration(totalMinutes)}</h3>
           <p>${monthBuild.length} 条记录 · ${activeDays} 个活跃日</p>
           <div class="module-bars">
@@ -933,6 +915,7 @@ function renderMonth() {
       <div class="footer">这个月不是填满时间，而是重新拿回时间的使用权。</div>
     </main>`;
   bindNavigation();
+  bindExecutionStatistics();
 }
 
 
@@ -1008,7 +991,7 @@ function renderSync() {
         <article class="sync-card">
           <div class="brand-kicker">LOCAL BACKUP</div>
           <h3>手动备份保险</h3>
-          <p>即使云端还没启用，也可以先把当前 Weekly 与 Build 历史导出成一个 JSON 文件。</p>
+          <p>即使云端还没启用，也可以先把当前任务与投入历史导出成一个 JSON 文件。</p>
           <div class="sync-actions"><button class="btn primary" id="exportBackup">导出备份</button><button class="btn" id="exportUpgradeBackup" ${localStorage.getItem(PRE_V1_BACKUP_KEY)?'':'disabled'}>导出升级前备份</button><label class="btn import-label">导入备份<input id="importBackup" type="file" accept="application/json,.json" hidden /></label></div>
           <details class="backup-text"><summary>文本备份与跨站迁移</summary><p>备份只包含任务和记录，不含登录凭据。导入会合并现有数据，并保留导入前快照。</p><button class="btn" id="showBackupText">读取当前备份</button><label for="backupJson">备份 JSON</label><textarea id="backupJson" aria-label="备份 JSON" spellcheck="false"></textarea><button class="btn" id="importBackupText">合并导入文本备份</button><p id="backupTextStatus" role="status"></p></details>
         </article>

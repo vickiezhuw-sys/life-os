@@ -238,6 +238,9 @@ h1 { margin:4px 0 0; font-size:28px; line-height:1.15; font-weight:680; }
 .agent-card li { font-size:13px; line-height:1.7; margin:6px 0; overflow-wrap:anywhere; }
 .agent-preview { margin-top:24px; border-left:3px solid #746d62; padding-left:16px; }
 .view-tabs { flex-wrap:wrap; }
+.task-effort-button { justify-self:start; margin-top:4px; font-size:12px; padding:7px 11px; }.task-effort { font-variant-numeric:tabular-nums; }
+.execution-statistics { margin:24px 0; }.execution-statistics h2 { font-size:26px; }.stats-filters { flex-wrap:wrap; }.stats-filters input[type=date] { min-width:130px; padding:8px; border:1px solid #cfc5b6; border-radius:10px; background:#fffdf8; }
+#effortModal .modal { max-height:90vh; overflow:auto; }
 .usage-guide { margin:20px 0; padding:20px; border:1px solid #cfc5b6; border-radius:20px; background:#eee8dd; }
 .usage-guide-heading { display:flex; justify-content:space-between; align-items:start; gap:20px; }
 .usage-guide h2 { font-size:22px; margin:8px 0 12px; }.usage-guide p { font-size:12px; color:#71695e; line-height:1.7; margin:0; }
