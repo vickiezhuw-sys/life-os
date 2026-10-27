@@ -63,3 +63,23 @@ test('reimport is idempotent and backup preserves results',async()=>{
  assert.equal(h.api.snapshot().agentResults[0].status,'accepted');
  assert.ok(h.values.get(results.AGENT_RESULT_KEY));
 });
+
+test('deleted task tombstone overrides older cloud record and survives snapshot', () => {
+ const h=appHarness();
+ const old={id:'deleted-1',date:'2026-10-26',module:'Career OS',title:'待删除任务',done:true,updatedAt:'2026-10-26T08:00:00Z'};
+ const cloud={planner:{tasks:[old]}};
+ const local={...h.api.snapshot(),planner:{tasks:[],deletedTasks:[{key:'2026-10-26|Career OS|待删除任务',deletedAt:'2026-10-27T08:00:00Z'}]}};
+ const merged=h.api.mergeSnapshot(cloud,local);
+ assert.equal(merged.planner.tasks.find(t=>t.id==='deleted-1'),undefined);
+ assert.equal(merged.planner.deletedTasks.length,1);
+ h.api.applySnapshot(merged);
+ assert.equal(h.api.snapshot().planner.deletedTasks.length,1);
+});
+test('newer task edit wins over old deletion marker',()=>{
+ const h=appHarness();
+ const task={id:'recreated',date:'2026-10-26',module:'Career OS',title:'新版本任务',done:false,updatedAt:'2026-10-27T10:00:00Z'};
+ const local={...h.api.snapshot(),planner:{tasks:[task]}};
+ const cloud={planner:{deletedTasks:[{key:'2026-10-26|Career OS|新版本任务',deletedAt:'2026-10-27T09:00:00Z'}],tasks:[]}};
+ const merged=h.api.mergeSnapshot(cloud,local);
+ assert.equal(merged.planner.tasks.find(t=>t.id==='recreated')?.done,false);
+});
