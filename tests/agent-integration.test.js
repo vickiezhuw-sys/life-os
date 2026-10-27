@@ -83,3 +83,11 @@ test('newer task edit wins over old deletion marker',()=>{
  const merged=h.api.mergeSnapshot(cloud,local);
  assert.equal(merged.planner.tasks.find(t=>t.id==='recreated')?.done,false);
 });
+
+test('today focus selections remain attached to dates in snapshot merging',()=>{
+ const h=appHarness();
+ const merged=h.api.mergeSnapshot({planner:{todayFocus:{'2026-10-26':['cloud-task']},tasks:[]}},
+   {...h.api.snapshot(),planner:{todayFocus:{'2026-10-27':['local-task']},tasks:[]}});
+ assert.deepEqual(Array.from(merged.planner.todayFocus['2026-10-26']),['cloud-task']);
+ assert.deepEqual(Array.from(merged.planner.todayFocus['2026-10-27']),['local-task']);
+});
