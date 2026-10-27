@@ -537,6 +537,10 @@ function renderDay() {
   const maxModule = Math.max(...moduleMinutes.map(x=>x.minutes),1);
   const dailyNotes = state.dailyNotes || {};
   const note = dailyNotes[today] || "";
+  const todayFocus = (state.todayFocus || {})[today] || [];
+  const focusTasks = tasks.filter(t=>todayFocus.includes(t.id));
+  const remainingMinutes = Math.max(0,300-totalMinutes);
+  const attainment = Math.min(100,Math.round(totalMinutes/300*100));
 
   document.querySelector("#app").innerHTML = `
     <main class="shell">
@@ -557,6 +561,14 @@ function renderDay() {
         </div>
       </section>
 
+      <section class="day-panel" aria-label="Project 35 execution dashboard">
+        <div class="brand-kicker">PROJECT 35 · DAILY EXECUTION</div>
+        <h3>今日有效投入：${fmtDuration(totalMinutes)} / 5 小时</h3>
+        <div class="month-progress" role="progressbar" aria-label="有效投入目标达成率" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${attainment}"><div style="width:${attainment}%"></div></div>
+        <p>${totalMinutes >= 300 ? "今日已达到 300 分钟投入目标。" : `距离目标还差 ${remainingMinutes} 分钟；只记录真实投入，不自动补时长。`}</p>
+        <div class="day-panel-head"><div><div class="brand-kicker">TOP 3</div><h3>今日最重要的三件事 · ${focusTasks.length}/3</h3></div></div>
+        ${focusTasks.length ? focusTasks.map(t=>`<div class="day-build-item"><strong>${escapeHtml(t.title)}</strong><span class="badge">${t.done?"已完成":"进行中"}</span></div>`).join("") : '<p>在下方任务右侧点击「设为重点」，最多选择三件。</p>'}
+      </section>
       <section class="day-layout">
         <article class="day-panel">
           <div class="day-panel-head">
@@ -572,7 +584,7 @@ function renderDay() {
                   ${t.note?`<small>${escapeHtml(t.note)}</small>`:""}
                   <span class="badge">${t.module}</span>
                 </div>
-                <button class="edit" data-day-edit="${t.id}">编辑</button>
+                <button class="edit" data-day-focus="${t.id}" aria-pressed="${todayFocus.includes(t.id)}">${todayFocus.includes(t.id)?"★ 重点":"☆ 设为重点"}</button><button class="edit" data-day-edit="${t.id}">编辑</button>
               </div>
             `).join("") : `<div class="day-empty">今天还没有安排。可以从 Weekly 里挑 1–3 件真正值得推进的事。</div>`}
           </div>
@@ -621,6 +633,15 @@ function renderDay() {
   bindNavigation();
   document.querySelectorAll("[data-day-check]").forEach(el=>el.onclick=()=>{
     state.tasks=state.tasks.map(t=>t.id===el.dataset.dayCheck?{...t,done:!t.done,updatedAt:new Date().toISOString()}:t);
+    save(state);
+    renderDay();
+  });
+  document.querySelectorAll("[data-day-focus]").forEach(el=>el.onclick=()=>{
+    const selected=(state.todayFocus || {})[today] || [];
+    const taskId=el.dataset.dayFocus;
+    if (!selected.includes(taskId) && selected.length >= 3) { alert("每日最多设置 3 件重点任务"); return; }
+    const next=selected.includes(taskId)?selected.filter(x=>x!==taskId):[...selected,taskId];
+    state.todayFocus={...(state.todayFocus||{}),[today]:next};
     save(state);
     renderDay();
   });
