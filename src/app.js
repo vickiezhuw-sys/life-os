@@ -6,6 +6,9 @@ import sepOctPlan from "./sep-oct-plan.json";
 import monthPlan from "./month-plan.json";
 import resumeSprint from "./sprint-01-resume-plan.json";
 import { cloudConfigured, getCloudSession, getCloudMeta, signIn, signUp, signOut, pullCloudSnapshot, pushCloudSnapshot } from "./sync.js";
+import { normalizeLifecycle, mergeLifecycle, mergeRecords, linkedTask, upsertEntity, validDay } from "./lifecycle.js";
+import { renderLifecycle } from "./lifecycle-view.js";
+import { taskIdentity, stamp, mergeTasks } from "./task-merge.js";
 
 const MODULES = [
   ["Health OS", "身体重建"],
@@ -17,7 +20,17 @@ const MODULES = [
 
 const STORE_KEY = "life-os-weekly-planner-v1";
 const BUILD_KEY = "life-os-build-v1";
-let currentView = "day";
+const PRE_V1_BACKUP_KEY = "life-os-before-v1-backup";
+// Save the unmodified pre-upgrade stores once. No sessions or credentials are copied.
+if (!localStorage.getItem(PRE_V1_BACKUP_KEY)) {
+  const rawPlanner=localStorage.getItem(STORE_KEY),rawBuild=localStorage.getItem(BUILD_KEY);
+  if (rawPlanner || rawBuild) {
+    try {localStorage.setItem(PRE_V1_BACKUP_KEY,JSON.stringify({version:1,planner:JSON.parse(rawPlanner || '{"tasks":[]}'),buildItems:JSON.parse(rawBuild || '[]'),agentResults:readAgentResults(),savedAt:new Date().toISOString()}));}
+    catch(error) {console.error('升级前备份未成功，请先导出本地数据',error);}
+  }
+}
+const VIEWS=['day','planner','month','build','goals','review','agents','sync'];
+let currentView = typeof location !== 'undefined' && VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'day';
 let statsRange = "day";
 let statsModule = "all";
 let cloudSyncReady = false;
@@ -86,9 +99,9 @@ function addMonthlyPlan(state) {
 }
 const CLOSED_RESUME_TASKS = new Set(["核对并修正两版简历工作时间","优化数据分析师主简历","压缩投放版描述并突出策略归因","核实简历成果数据与AI效率指标","确认两版最终投递简历"]);
 function reconcileConfirmedProgress(planner) {
-  planner.tasks = (planner.tasks || []).filter(t => !CLOSED_RESUME_TASKS.has(t.title));
+  planner.tasks = (planner.tasks || []).filter(t => stamp(t) !== null || !CLOSED_RESUME_TASKS.has(t.title));
   const titles = new Set(resumeSprint.filter(t => t.done === true).map(t => t.date + "|" + t.title));
-  planner.tasks = planner.tasks.map(t => titles.has(t.date + "|" + t.title) ? {...t, done:true} : t);
+  planner.tasks = planner.tasks.map(t => stamp(t) === null && titles.has(t.date + "|" + t.title) ? {...t, done:true} : t);
   return planner;
 }
 function addResumeSprint(state) {
@@ -105,26 +118,34 @@ function addResumeSprint(state) {
 }
 // Deduplicate planner tasks by their semantic identity, not generated UUIDs.
 // Preserve completion if any copy was completed and retain informative notes.
+// Pure helpers for conflict-safe planner reconciliation.
 function dedupeTasks(tasks = []) {
-  const byKey = new Map();
-  for (const task of tasks) {
-    if (!task || !task.date || !task.title) continue;
-    const key = [task.date, task.module || "", task.title.trim().replace(/\s+/g, " ")].join("|");
-    if (!byKey.has(key)) {
-      byKey.set(key, {...task});
-      continue;
-    }
-    const prior = byKey.get(key);
-    byKey.set(key, {
-      ...prior,
-      done: Boolean(prior.done || task.done),
-      note: (task.note || "").length > (prior.note || "").length ? task.note : prior.note
-    });
+  return mergeTasks(tasks);
+}
+
+// Tombstones prevent tasks deleted on one device from being revived by stale cloud copies.
+// Identity is stable for the same date/module/title; use the latest explicit edit.
+function mergedDeletions(a = [], b = []) {
+  const map = new Map();
+  for (const entry of [...a, ...b]) {
+    if (!entry?.key || !Number.isFinite(Date.parse(entry.deletedAt || ""))) continue;
+    const previous = map.get(entry.key);
+    if (!previous || Date.parse(entry.deletedAt) > Date.parse(previous.deletedAt)) map.set(entry.key, entry);
   }
-  return [...byKey.values()];
+  return [...map.values()];
+}
+function withoutDeleted(tasks, deletions) {
+  const removed = new Map(deletions.map(d => [d.key, Date.parse(d.deletedAt)]));
+  return dedupeTasks(tasks).filter(t => {
+    const time = Math.max(removed.get(taskIdentity(t)) ?? -Infinity, removed.get(`id:${t.id}`) ?? -Infinity);
+    if (time === -Infinity) return true;
+    const updated = Date.parse(t.updatedAt || "");
+    return Number.isFinite(updated) && updated > time;
+  });
 }
 function normalizePlanner(planner) {
-  return reconcileConfirmedProgress({...planner, tasks: dedupeTasks(planner.tasks || [])});
+  const deletedTasks = mergedDeletions(planner.deletedTasks || []);
+  return reconcileConfirmedProgress(normalizeLifecycle({...planner, deletedTasks, tasks: withoutDeleted(planner.tasks || [], deletedTasks)}));
 }
 function load() {
   try {
@@ -134,22 +155,29 @@ function load() {
       addCurrentPlan(v);
       addMonthlyPlan(v);
       addResumeSprint(v);
-      v.tasks = dedupeTasks(v.tasks);
+      v.tasks = withoutDeleted(v.tasks, v.deletedTasks || []);
       save(v);
       return v;
     }
   } catch {}
   const v = addResumeSprint(addMonthlyPlan(addCurrentPlan({ weekStart: currentWeekStart(), tasks: seed() })));
-  v.tasks = dedupeTasks(v.tasks);
+  v.tasks = withoutDeleted(v.tasks, v.deletedTasks || []);
   save(v);
   return v;
 }
 function save(state) {
-  state.tasks = dedupeTasks(state.tasks);
+  Object.assign(state, normalizeLifecycle(state));
+  state.tasks = withoutDeleted(state.tasks, state.deletedTasks || []);
   localStorage.setItem(STORE_KEY, JSON.stringify(state));
   if (cloudSyncReady) queueCloudSync();
 }
 let state = load();
+buildItems = withoutDeletedBuilds(buildItems,state);
+localStorage.setItem(BUILD_KEY,JSON.stringify(buildItems));
+function withoutDeletedBuilds(items,planner) {
+  const removed=new Map((planner.deletedBuildItems || []).map(d=>[d.key,Date.parse(d.deletedAt)]));
+  return items.filter(item=>!removed.has(item.id) || (stamp(item) ?? 0)>removed.get(item.id));
+}
 
 function snapshot() {
   return {
@@ -172,42 +200,128 @@ function mergeSnapshot(cloudPayload = {}, localPayload = snapshot()) {
   const planner = {
     ...cloudPlanner,
     ...localPlanner,
-    tasks: dedupeTasks([
-      ...(cloudPlanner.tasks || []),
-      ...(localPlanner.tasks || [])
-    ])
+    ...mergeLifecycle(cloudPlanner,localPlanner),
+    lifecycleVersion:1,
+    todayFocus: mergeDailyValues(cloudPlanner.todayFocus, localPlanner.todayFocus, cloudPlanner.focusUpdatedAt, localPlanner.focusUpdatedAt),
+    focusUpdatedAt: mergeDailyValues(cloudPlanner.focusUpdatedAt, localPlanner.focusUpdatedAt, cloudPlanner.focusUpdatedAt, localPlanner.focusUpdatedAt),
+    dailyNotes: mergeDailyValues(cloudPlanner.dailyNotes, localPlanner.dailyNotes, cloudPlanner.noteUpdatedAt, localPlanner.noteUpdatedAt),
+    noteUpdatedAt: mergeDailyValues(cloudPlanner.noteUpdatedAt, localPlanner.noteUpdatedAt, cloudPlanner.noteUpdatedAt, localPlanner.noteUpdatedAt),
+    dailyReviews: mergeDailyValues(cloudPlanner.dailyReviews, localPlanner.dailyReviews,
+      reviewStamps(cloudPlanner.dailyReviews), reviewStamps(localPlanner.dailyReviews)),
+    deletedTasks: mergedDeletions(cloudPlanner.deletedTasks, localPlanner.deletedTasks),
+    deletedBuildItems: mergedDeletions(cloudPlanner.deletedBuildItems,localPlanner.deletedBuildItems),
+    tasks: []
   };
+  planner.tasks = withoutDeleted([...(cloudPlanner.tasks || []), ...(localPlanner.tasks || [])], planner.deletedTasks);
+  // Older devices generated different UUIDs for the same seeded task.
+  for (const [day, selected] of Object.entries(planner.todayFocus)) {
+    const sourceTasks = [...(cloudPlanner.tasks || []), ...(localPlanner.tasks || [])];
+    planner.todayFocus[day] = [...new Set((Array.isArray(selected) ? selected : []).map(ref => {
+      const original = sourceTasks.find(t => t.id === ref);
+      return planner.tasks.find(t => t.date === day && (t.id === ref || (original && taskIdentity(t) === taskIdentity(original))))?.id || ref;
+    }).filter(Boolean))];
+  }
   reconcileConfirmedProgress(planner);
-  const builds = addVerifiedBuildSeeds(mergeByKey(
-    cloudPayload.buildItems || [],
-    localPayload.buildItems || [],
-    item => item.id || `${item.at || ""}|${item.content || ""}`
-  ));
+  const buildIdentity=item=>({...item,id:item.id || `legacy:${item.at || ''}|${item.content || ''}`});
+  const builds = withoutDeletedBuilds(addVerifiedBuildSeeds(mergeRecords(
+    (cloudPayload.buildItems || []).map(buildIdentity),
+    (localPayload.buildItems || []).map(buildIdentity)
+  )),planner);
+  const sourceTasks=[...(cloudPlanner.tasks || []),...(localPlanner.tasks || [])];
+  for(const build of builds) {
+    const original=sourceTasks.find(t=>t.id===build.taskId);
+    const linked=planner.tasks.find(t=>t.id===build.taskId || (original && taskIdentity(t)===taskIdentity(original) && (t.projectId || '')===(original.projectId || '')));
+    if(linked) {build.taskId=linked.id;build.projectId=build.projectId || linked.projectId || '';}
+  }
   return { version: 1, planner, buildItems: builds,
     agentResults: mergeAgentResults(cloudPayload.agentResults, localPayload.agentResults),
     savedAt: new Date().toISOString() };
 }
+function reviewStamps(reviews = {}) {
+  return Object.fromEntries(Object.entries(reviews).map(([day, review]) => [day, review?.updatedAt]));
+}
+function mergeDailyValues(cloud = {}, local = {}, cloudStamps = {}, localStamps = {}) {
+  const merged = {...cloud};
+  for (const [day, value] of Object.entries(local)) {
+    const a = Date.parse(cloudStamps[day]) || 0, b = Date.parse(localStamps[day]) || 0;
+    if (!(day in merged) || b > a || (a === b && (a === 0 || JSON.stringify(value) > JSON.stringify(merged[day])))) merged[day] = value;
+  }
+  return merged;
+}
+function toggleTodayFocus(taskId, day = iso(new Date())) {
+  const valid = state.tasks.filter(t => t.date === day);
+  const selected = ((state.todayFocus || {})[day] || []).filter(ref => valid.some(t => t.id === ref));
+  if (!valid.some(t => t.id === taskId)) return false;
+  if (!selected.includes(taskId) && selected.length >= 3) return false;
+  state.todayFocus = {...state.todayFocus, [day]: selected.includes(taskId) ? selected.filter(ref => ref !== taskId) : [...selected, taskId]};
+  state.focusUpdatedAt = {...state.focusUpdatedAt, [day]:new Date().toISOString()};
+  save(state);
+  return true;
+}
+function carryTask(taskId, targetDay = iso(new Date())) {
+  const source = state.tasks.find(t => t.id === taskId);
+  if (!source || source.done || source.date >= targetDay) return false;
+  const key = taskIdentity({...source, date:targetDay});
+  if (state.tasks.some(t => taskIdentity(t) === key)) return false;
+  state.tasks.push({...source, id:id(), date:targetDay, done:false,
+    carriedFrom:source.id, carriedFromDate:source.date, updatedAt:new Date().toISOString()});
+  save(state);
+  return true;
+}
 function applySnapshot(payload) {
   if (!payload) return;
   if (payload.planner?.tasks) state = normalizePlanner(payload.planner);
-  if (Array.isArray(payload.buildItems)) buildItems = addVerifiedBuildSeeds(payload.buildItems);
+  if (Array.isArray(payload.buildItems)) buildItems = withoutDeletedBuilds(addVerifiedBuildSeeds(payload.buildItems),state);
   if (Array.isArray(payload.agentResults)) agentResults = mergeAgentResults(payload.agentResults);
   localStorage.setItem(STORE_KEY, JSON.stringify(state));
   localStorage.setItem(BUILD_KEY, JSON.stringify(buildItems));
   localStorage.setItem(AGENT_RESULT_KEY, JSON.stringify(agentResults));
 }
+// Always reconcile before upload: a direct write of a stale local snapshot
+// can erase newer cloud changes made on another device.
+let syncInFlight = null;
+let syncPending = false;
 function queueCloudSync() {
   if (!cloudConfigured || !getCloudSession()?.access_token) return;
+  syncPending = true;
   clearTimeout(syncTimer);
-  syncTimer = setTimeout(() => pushCloudSnapshot(snapshot()).catch(()=>{}), 700);
+  syncTimer = setTimeout(() => {
+    syncNow().catch(error => {
+      console.error("Life OS cloud sync failed; local data remains available", error);
+      if (currentView === "sync") renderSync();
+    });
+  }, 700);
 }
 async function syncNow() {
   if (!cloudConfigured || !getCloudSession()?.access_token) return false;
-  const row = await pullCloudSnapshot();
-  const merged = row?.payload ? mergeSnapshot(row.payload, snapshot()) : snapshot();
-  applySnapshot(merged);
-  await pushCloudSnapshot(merged);
-  return true;
+  if (syncInFlight) {
+    syncPending = true;
+    await syncInFlight;
+    if (!syncPending) return true;
+    // The active operation may have started before the latest local edit.
+    // The caller will run another reconciliation after it finishes.
+  }
+  syncPending = false;
+  const work = (async () => {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const row = await pullCloudSnapshot();
+      const merged = row?.payload ? mergeSnapshot(row.payload, snapshot()) : snapshot();
+      applySnapshot(merged);
+      try {
+        const uploaded = await pushCloudSnapshot(merged, row?.updated_at ?? null);
+        if (!uploaded) throw new Error("Cloud session expired or upload was skipped");
+        return true;
+      } catch (error) {
+        if (error.code !== "SYNC_CONFLICT" || attempt === 2) throw error;
+      }
+    }
+  })();
+  syncInFlight = work;
+  try { return await work; }
+  finally {
+    if (syncInFlight === work) syncInFlight = null;
+    if (syncPending) queueCloudSync();
+  }
 }
 async function initializeCloudSync() {
   cloudSyncReady = true;
@@ -223,6 +337,7 @@ function renderCurrentView() {
   else if (currentView === "month") renderMonth();
   else if (currentView === "sync") renderSync();
   else if (currentView === "agents") renderAgents();
+  else if (currentView === "goals" || currentView === "review") renderLifecycle(lifecycleHost(),currentView);
   else render();
 }
 
@@ -232,14 +347,35 @@ function navHtml(active) {
     ["planner", "Weekly"],
     ["month", "Month"],
     ["build", "Build"],
+    ["goals", "目标与计划"],
+    ["review", "周月复盘"],
     ["agents", "Agents"],
     ["sync", "Sync"],
   ];
   return `<div class="view-tabs">${items.map(([key,label])=>`<button class="view-tab ${active===key?"active":""}" data-nav="${key}">${label}</button>`).join("")}</div>`;
 }
+function lifecycleHost() {
+  return {getState:()=>state,getBuilds:()=>buildItems,setState:next=>{state=next;save(state);},
+    nav:navHtml,bindNavigation,makeId:id,openTask:openEditor};
+}
+function projectOptions(selected = "") {
+  return '<option value="">暂不关联项目</option>' + (state.projects || []).map(p=>`<option value="${escapeHtml(p.id)}" ${p.id===selected?'selected':''}>${escapeHtml(p.title)}${p.archived?'（已归档）':''}</option>`).join('');
+}
+function taskLinkOptions(selected = "") {
+  return '<option value="">暂不关联任务</option>' + state.tasks.map(t=>`<option value="${escapeHtml(t.id)}" ${t.id===selected?'selected':''}>${escapeHtml(t.date)} · ${escapeHtml(t.title)}</option>`).join('');
+}
+function buildLinks(fd) {
+  const taskId=fd.get('taskId') || '', projectId=fd.get('projectId') || '';
+  const task=state.tasks.find(t=>t.id===taskId);
+  if (taskId && !task) throw new Error('关联任务不存在');
+  if (task && projectId && task.projectId !== projectId) throw new Error('任务与项目不一致，请选择任务所属项目');
+  if (projectId && !(state.projects || []).some(p=>p.id===projectId)) throw new Error('项目不存在');
+  return {taskId,projectId:task?.projectId || projectId};
+}
 function bindNavigation() {
   document.querySelectorAll("[data-nav]").forEach(el=>el.onclick=()=>{
     currentView = el.dataset.nav;
+    if (typeof history !== 'undefined') history.replaceState(null,'',`#${currentView}`);
     renderCurrentView();
   });
 }
@@ -268,6 +404,8 @@ function openEditor(task={}, date=weekDates(state.weekStart)[0]) {
         <div class="field"><label>模块</label><select name="module">${MODULES.map(([m])=>`<option ${task.module===m?"selected":""}>${m}</option>`).join("")}</select></div>
         <div class="field"><label>任务</label><input name="title" value="${escapeHtml(task.title||"")}" required /></div>
         <div class="field"><label>备注</label><textarea name="note">${escapeHtml(task.note||"")}</textarea></div>
+        <div class="field"><label for="taskProject">关联项目</label><select id="taskProject" name="projectId">${projectOptions(task.projectId)}</select></div>
+        <div class="field"><label for="taskPlan">关联月周计划</label><select id="taskPlan" name="planId"><option value="">暂不关联计划</option>${(state.plans || []).map(p=>`<option value="${escapeHtml(p.id)}" ${p.id===task.planId?'selected':''}>${escapeHtml(p.kind==='week'?'周':'月')} · ${escapeHtml(p.outcome)}</option>`).join('')}</select></div>
         <div class="modal-actions">
           ${editing ? `<button type="button" class="btn" id="deleteTask">删除</button>` : ""}
           <button type="button" class="btn" id="cancelModal">取消</button>
@@ -279,20 +417,33 @@ function openEditor(task={}, date=weekDates(state.weekStart)[0]) {
   const modal=document.querySelector("#modal");
   modal.querySelector("#cancelModal").onclick=()=>modal.remove();
   if (editing) modal.querySelector("#deleteTask").onclick=()=>{
+    const deletedAt = new Date().toISOString();
+    state.deletedTasks = mergedDeletions(state.deletedTasks, [{ key: taskIdentity(task), deletedAt }, { key: `id:${task.id}`, deletedAt }]);
     state.tasks=state.tasks.filter(x=>x.id!==task.id); save(state); modal.remove(); renderCurrentView();
   };
   modal.querySelector("#taskForm").onsubmit=(e)=>{
     e.preventDefault();
     const fd=new FormData(e.currentTarget);
+    let links;
+    try { links=linkedTask(state,fd.get('projectId') || '',fd.get('planId') || ''); } catch(error) { alert(error.message);return; }
     const next = {
+      ...task,
+      ...links,
       id: task.id || id(),
       done: task.done || false,
       date: fd.get("date"),
       module: fd.get("module"),
       title: fd.get("title").trim(),
-      note: fd.get("note").trim()
+      note: fd.get("note").trim(),
+      updatedAt: new Date().toISOString()
     };
-    if (editing) state.tasks=state.tasks.map(x=>x.id===task.id?next:x);
+    if (!next.title || !validDay(next.date)) {alert('请填写任务名称和有效日期');return;}
+    if (editing) {
+      if (taskIdentity(task) !== taskIdentity(next)) {
+        state.deletedTasks = mergedDeletions(state.deletedTasks, [{key:taskIdentity(task),deletedAt:next.updatedAt}]);
+      }
+      state.tasks=state.tasks.map(x=>x.id===task.id?next:x);
+    }
     else state.tasks.push(next);
     save(state); modal.remove(); renderCurrentView();
   };
@@ -405,6 +556,8 @@ function editBuild(item) {
     <div class="field"><label for="editBuildAt">开始时间</label><input id="editBuildAt" name="at" type="datetime-local" required value="${escapeHtml(item.at)}" /></div>
     <div class="field"><label for="editBuildDuration">时长（分钟）</label><input id="editBuildDuration" name="duration" type="number" inputmode="numeric" min="1" max="1440" step="1" value="${durationMinutes(item) || ""}" /></div>
     <div class="field"><label for="editBuildModule">OS 分类</label><select id="editBuildModule" name="module" required>${moduleOptions(item.module)}</select></div>
+    <div class="field"><label for="editBuildTask">关联任务</label><select id="editBuildTask" name="taskId">${taskLinkOptions(item.taskId)}</select></div>
+    <div class="field"><label for="editBuildProject">关联项目</label><select id="editBuildProject" name="projectId">${projectOptions(item.projectId)}</select></div>
     <div class="modal-actions"><button type="button" class="btn" id="cancelBuildEdit">取消</button><button class="btn primary">保存</button></div>
   </form>`;
   document.body.append(modal);
@@ -413,7 +566,9 @@ function editBuild(item) {
   modal.querySelector("form").onsubmit=e=>{
     e.preventDefault();
     const fd=new FormData(e.currentTarget);
-    const updated={...item,content:fd.get("content").trim(),at:fd.get("at"),duration:fd.get("duration") ? Number(fd.get("duration")) : 0,module:fd.get("module")};
+    let links; try {links=buildLinks(fd);} catch(error) {alert(error.message);return;}
+    const updated={...item,...links,content:fd.get("content").trim(),at:fd.get("at"),duration:fd.get("duration") ? Number(fd.get("duration")) : 0,module:fd.get("module"),updatedAt:new Date().toISOString()};
+    if (!updated.content || !validDay(String(updated.at).slice(0,10)) || !Number.isFinite(updated.duration) || updated.duration<0 || updated.duration>1440) {alert('请检查记录内容、日期和时长');return;}
     buildItems=buildItems.map(x=>x.id===item.id ? updated : x);
     saveBuild(buildItems); modal.remove(); renderBuild();
   };
@@ -467,6 +622,12 @@ function renderDay() {
   const maxModule = Math.max(...moduleMinutes.map(x=>x.minutes),1);
   const dailyNotes = state.dailyNotes || {};
   const note = dailyNotes[today] || "";
+  const todayFocus = ((state.todayFocus || {})[today] || []).filter(ref => tasks.some(t => t.id === ref)).slice(0,3);
+  const focusTasks = tasks.filter(t=>todayFocus.includes(t.id));
+  const remainingMinutes = Math.max(0,300-totalMinutes);
+  const attainment = Math.min(100,Math.round(totalMinutes/300*100));
+  const review = (state.dailyReviews || {})[today] || {};
+  const overdue = state.tasks.filter(t => !t.done && t.date < today && !tasks.some(current => taskIdentity(current) === taskIdentity({...t,date:today})));
 
   document.querySelector("#app").innerHTML = `
     <main class="shell">
@@ -487,6 +648,15 @@ function renderDay() {
         </div>
       </section>
 
+      <section class="day-panel" aria-label="Project 35 execution dashboard">
+        <div class="brand-kicker">PROJECT 35 · DAILY EXECUTION</div>
+        <h3>今日有效投入：${fmtDuration(totalMinutes)} / 5 小时</h3>
+        <div class="month-progress" role="progressbar" aria-label="有效投入目标达成率" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${attainment}"><div style="width:${attainment}%"></div></div>
+        <p>${totalMinutes >= 300 ? "今日已达到 300 分钟投入目标。" : `距离目标还差 ${remainingMinutes} 分钟；只记录真实投入，不自动补时长。`}</p>
+        <div class="day-panel-head"><div><div class="brand-kicker">TOP 3</div><h3>今日最重要的三件事 · ${focusTasks.length}/3</h3></div></div>
+        ${focusTasks.length ? focusTasks.map(t=>`<div class="day-build-item"><strong>${escapeHtml(t.title)}</strong><span class="badge">${t.done?"已完成":"进行中"}</span></div>`).join("") : '<p>在下方任务右侧点击「设为重点」，最多选择三件。</p>'}
+      </section>
+      <section class="day-panel"><h3>快速捕获</h3><form id="dayCaptureForm" class="cycle-inline"><input name="title" maxlength="280" placeholder="先记下一件事，稍后安排" aria-label="快速捕获待办" required /><button class="btn">加入收集箱</button></form><span id="dayCaptureStatus" role="status">在「目标与计划」中安排日期和项目。</span></section>
       <section class="day-layout">
         <article class="day-panel">
           <div class="day-panel-head">
@@ -501,8 +671,9 @@ function renderDay() {
                   <strong>${escapeHtml(t.title)}</strong>
                   ${t.note?`<small>${escapeHtml(t.note)}</small>`:""}
                   <span class="badge">${t.module}</span>
+                  ${t.projectId?`<small>项目：${escapeHtml((state.projects || []).find(p=>p.id===t.projectId)?.title || '关联记录待同步')}</small>`:''}
                 </div>
-                <button class="edit" data-day-edit="${t.id}">编辑</button>
+                <button class="edit" data-day-focus="${t.id}" aria-pressed="${todayFocus.includes(t.id)}">${todayFocus.includes(t.id)?"★ 重点":"☆ 设为重点"}</button><button class="edit" data-day-edit="${t.id}">编辑</button>
               </div>
             `).join("") : `<div class="day-empty">今天还没有安排。可以从 Weekly 里挑 1–3 件真正值得推进的事。</div>`}
           </div>
@@ -546,12 +717,34 @@ function renderDay() {
         <textarea id="dailyNote" maxlength="280" placeholder="留一句就够了。">${escapeHtml(note)}</textarea>
         <div class="day-note-foot"><span id="noteStatus">自动保存到 Life OS</span><span>${note.length}/280</span></div>
       </section>
+      <section class="day-panel">
+        <h3>日终复盘</h3>
+        <p>已完成 ${doneTasks.length}/${tasks.length} 件 · 真实投入 ${fmtDuration(totalMinutes)}</p>
+        <form id="dailyReviewForm" class="sync-form">
+          <label>今天推进了什么？<textarea name="summary" maxlength="1000">${escapeHtml(review.summary || "")}</textarea></label>
+          <label>明天的下一步<input name="nextStep" maxlength="280" value="${escapeHtml(review.nextStep || "")}" /></label>
+          <button class="btn primary">保存复盘</button><span id="reviewStatus">${review.updatedAt ? "已保存" : "尚未复盘"}</span>
+        </form>
+      </section>
+      <section class="day-panel">
+        <h3>未完成任务结转</h3>
+        <p>由你逐项选择，原日期记录会保留；结转不会生成投入时间。</p>
+        ${overdue.length ? overdue.map(t=>`<div class="day-build-item"><div><strong>${escapeHtml(t.title)}</strong><small>${escapeHtml(t.date)} · ${escapeHtml(t.module || "")}</small></div><button class="btn" data-carry-task="${escapeHtml(t.id)}">安排到今天</button></div>`).join("") : '<p>没有待结转任务。</p>'}
+      </section>
     </main>`;
 
   bindNavigation();
+  document.querySelector('#dayCaptureForm').onsubmit=e=>{
+    e.preventDefault();const fd=new FormData(e.currentTarget);
+    try {state=upsertEntity(state,'captures',{title:fd.get('title')},id);save(state);e.currentTarget.reset();document.querySelector('#dayCaptureStatus').textContent='已加入收集箱 · 尚未安排日期';} catch(error) {alert(error.message);}
+  };
   document.querySelectorAll("[data-day-check]").forEach(el=>el.onclick=()=>{
-    state.tasks=state.tasks.map(t=>t.id===el.dataset.dayCheck?{...t,done:!t.done}:t);
+    state.tasks=state.tasks.map(t=>t.id===el.dataset.dayCheck?{...t,done:!t.done,updatedAt:new Date().toISOString()}:t);
     save(state);
+    renderDay();
+  });
+  document.querySelectorAll("[data-day-focus]").forEach(el=>el.onclick=()=>{
+    if (!toggleTodayFocus(el.dataset.dayFocus,today)) { alert("每日最多设置 3 件重点任务"); return; }
     renderDay();
   });
   document.querySelectorAll("[data-day-edit]").forEach(el=>el.onclick=()=>openEditor(state.tasks.find(t=>t.id===el.dataset.dayEdit), today));
@@ -559,17 +752,22 @@ function renderDay() {
   document.querySelector("[data-jump-build]").onclick=()=>{currentView="build"; renderBuild();};
 
   const noteEl=document.querySelector("#dailyNote");
-  let noteTimer=null;
   noteEl.oninput=()=>{
     const value=noteEl.value;
     document.querySelector(".day-note-foot span:last-child").textContent=`${value.length}/280`;
     document.querySelector("#noteStatus").textContent="保存中…";
-    clearTimeout(noteTimer);
-    noteTimer=setTimeout(()=>{
       state.dailyNotes={...(state.dailyNotes||{}),[today]:value};
+      state.noteUpdatedAt={...(state.noteUpdatedAt||{}),[today]:new Date().toISOString()};
       save(state);
       document.querySelector("#noteStatus").textContent="已保存 · 会随云同步备份";
-    },450);
+  };
+  document.querySelectorAll("[data-carry-task]").forEach(el=>el.onclick=()=>{carryTask(el.dataset.carryTask,today);renderDay();});
+  document.querySelector("#dailyReviewForm").onsubmit=e=>{
+    e.preventDefault();
+    const fd=new FormData(e.currentTarget);
+    state.dailyReviews={...state.dailyReviews,[today]:{summary:String(fd.get("summary") || "").trim().slice(0,1000),nextStep:String(fd.get("nextStep") || "").trim().slice(0,280),updatedAt:new Date().toISOString()}};
+    save(state);
+    document.querySelector("#reviewStatus").textContent="已保存 · 会随云同步备份";
   };
 }
 
@@ -600,6 +798,8 @@ function renderBuild() {
             <input name="at" type="datetime-local" value="${nowLocalInput()}" required />
             <input name="duration" type="number" inputmode="numeric" min="1" max="1440" step="1" placeholder="时长（分钟）" aria-label="时长（分钟）" required />
             <select name="module" aria-label="OS 分类" required>${moduleOptions()}</select>
+            <select name="taskId" aria-label="关联任务">${taskLinkOptions()}</select>
+            <select name="projectId" aria-label="关联项目">${projectOptions()}</select>
           </div>
           <button class="btn primary">记录</button>
         </form>
@@ -633,6 +833,7 @@ function renderBuild() {
               <div class="build-content">${escapeHtml(x.content)}</div>
               <div class="build-time">${fmtBuildTime(x.at)}${durationMinutes(x) ? ` · ${fmtDuration(durationMinutes(x))}` : " · 未记录时长"}</div>
               <div class="build-category">${MODULES.some(([name])=>name===x.module) ? x.module : "未分类"}</div>
+              ${x.projectId?`<div class="muted">项目：${escapeHtml((state.projects || []).find(p=>p.id===x.projectId)?.title || '关联记录待同步')}</div>`:''}
             </div>
             <div class="build-actions"><button class="edit" data-edit-build="${x.id}">编辑</button><button class="edit" data-delete-build="${x.id}">删除</button></div>
           </article>
@@ -644,13 +845,18 @@ function renderBuild() {
   document.querySelector("#buildForm").onsubmit=(e)=>{
     e.preventDefault();
     const fd=new FormData(e.currentTarget);
-    buildItems.unshift({id:id(), content:fd.get("content").trim(), at:fd.get("at"), duration:Number(fd.get("duration")), module:fd.get("module")});
+    let links; try {links=buildLinks(fd);} catch(error) {alert(error.message);return;}
+    const entry={id:id(),...links, content:fd.get("content").trim(), at:fd.get("at"), duration:Number(fd.get("duration")), module:fd.get("module"),updatedAt:new Date().toISOString()};
+    if (!entry.content || !validDay(String(entry.at).slice(0,10)) || !Number.isFinite(entry.duration) || entry.duration<=0 || entry.duration>1440) {alert('请检查记录内容、日期和时长');return;}
+    buildItems.unshift(entry);
     saveBuild(buildItems); renderBuild();
   };
   document.querySelectorAll("[data-range]").forEach(el=>el.onclick=()=>{statsRange=el.dataset.range; renderBuild();});
   document.querySelector("#statsModule").onchange=e=>{statsModule=e.target.value; renderBuild();};
   document.querySelectorAll("[data-edit-build]").forEach(el=>el.onclick=()=>editBuild(buildItems.find(x=>x.id===el.dataset.editBuild)));
   document.querySelectorAll("[data-delete-build]").forEach(el=>el.onclick=()=>{
+    state.deletedBuildItems=mergedDeletions(state.deletedBuildItems,[{key:el.dataset.deleteBuild,deletedAt:new Date().toISOString()}]);
+    save(state);
     buildItems=buildItems.filter(x=>x.id!==el.dataset.deleteBuild);
     saveBuild(buildItems); renderBuild();
   });
@@ -740,6 +946,8 @@ function importBackup(file) {
   reader.onload = () => {
     try {
       const incoming = JSON.parse(reader.result);
+      if (!incoming || (incoming.version !== undefined && incoming.version !== 1) || !Array.isArray(incoming.planner?.tasks) || (incoming.buildItems !== undefined && !Array.isArray(incoming.buildItems))) throw new Error('备份格式不兼容');
+      localStorage.setItem('life-os-before-import-backup',JSON.stringify(snapshot()));
       const merged = mergeSnapshot(incoming, snapshot());
       applySnapshot(merged);
       queueCloudSync();
@@ -749,6 +957,13 @@ function importBackup(file) {
     }
   };
   reader.readAsText(file);
+}
+function importBackupText(raw) {
+  const incoming=JSON.parse(raw);
+  if (!incoming || (incoming.version !== undefined && incoming.version !== 1) || !Array.isArray(incoming.planner?.tasks) || (incoming.buildItems !== undefined && !Array.isArray(incoming.buildItems))) throw new Error('备份格式不兼容');
+  localStorage.setItem('life-os-before-import-backup',JSON.stringify(snapshot()));
+  applySnapshot(mergeSnapshot(incoming,snapshot()));
+  queueCloudSync();
 }
 function renderSync() {
   const session = getCloudSession();
@@ -771,7 +986,7 @@ function renderSync() {
           <div class="brand-kicker">SYNC STATUS</div>
           <h3>${statusText}</h3>
           <p>最近同步：${fmtSyncTime(meta.lastSyncedAt)}</p>
-          ${meta.error ? `<div class="sync-error">${escapeHtml(meta.error)}</div>` : ""}
+          ${meta.error ? `<div class="sync-error">同步失败：${escapeHtml(meta.error)}。本地记录仍在，可点击“立即同步”重试。</div>` : ""}
           ${!cloudConfigured ? `<div class="sync-callout">同步代码已经就绪，还需要 Supabase Project URL 与 anon public key 才能启用真正的跨设备云同步。</div>` : ""}
           ${cloudConfigured && !signedIn ? `
             <form id="syncLoginForm" class="sync-form">
@@ -785,7 +1000,8 @@ function renderSync() {
           <div class="brand-kicker">LOCAL BACKUP</div>
           <h3>手动备份保险</h3>
           <p>即使云端还没启用，也可以先把当前 Weekly 与 Build 历史导出成一个 JSON 文件。</p>
-          <div class="sync-actions"><button class="btn primary" id="exportBackup">导出备份</button><label class="btn import-label">导入备份<input id="importBackup" type="file" accept="application/json,.json" hidden /></label></div>
+          <div class="sync-actions"><button class="btn primary" id="exportBackup">导出备份</button><button class="btn" id="exportUpgradeBackup" ${localStorage.getItem(PRE_V1_BACKUP_KEY)?'':'disabled'}>导出升级前备份</button><label class="btn import-label">导入备份<input id="importBackup" type="file" accept="application/json,.json" hidden /></label></div>
+          <details class="backup-text"><summary>文本备份与跨站迁移</summary><p>备份只包含任务和记录，不含登录凭据。导入会合并现有数据，并保留导入前快照。</p><button class="btn" id="showBackupText">读取当前备份</button><label for="backupJson">备份 JSON</label><textarea id="backupJson" aria-label="备份 JSON" spellcheck="false"></textarea><button class="btn" id="importBackupText">合并导入文本备份</button><p id="backupTextStatus" role="status"></p></details>
         </article>
       </section>
       <section class="sync-card sync-explain">
@@ -796,6 +1012,16 @@ function renderSync() {
     </main>`;
   bindNavigation();
   document.querySelector("#exportBackup").onclick=downloadBackup;
+  document.querySelector('#showBackupText').onclick=()=>{document.querySelector('#backupJson').value=JSON.stringify(snapshot());document.querySelector('#backupTextStatus').textContent='已读取当前备份，可复制保存';};
+  document.querySelector('#importBackupText').onclick=()=>{
+    try {importBackupText(document.querySelector('#backupJson').value);document.querySelector('#backupTextStatus').textContent='已合并到当前设备；登录后可云同步';}
+    catch(error) {document.querySelector('#backupTextStatus').textContent=`导入失败：${error.message}`;}
+  };
+  document.querySelector('#exportUpgradeBackup').onclick=()=>{
+    const raw=localStorage.getItem(PRE_V1_BACKUP_KEY);if(!raw) return;
+    const url=URL.createObjectURL(new Blob([raw],{type:'application/json'}));
+    const a=document.createElement('a');a.href=url;a.download='life-os-before-v1-backup.json';a.click();URL.revokeObjectURL(url);
+  };
   document.querySelector("#importBackup").onchange=e=>{if(e.target.files?.[0]) importBackup(e.target.files[0]);};
   if (cloudConfigured && !signedIn) {
     const form=document.querySelector("#syncLoginForm");
@@ -910,7 +1136,7 @@ function render() {
   `;
   bindNavigation();
   document.querySelectorAll("[data-check]").forEach(el=>el.onclick=()=>{
-    state.tasks=state.tasks.map(t=>t.id===el.dataset.check?{...t,done:!t.done}:t); save(state); render();
+    state.tasks=state.tasks.map(t=>t.id===el.dataset.check?{...t,done:!t.done,updatedAt:new Date().toISOString()}:t); save(state); render();
   });
   document.querySelectorAll("[data-edit]").forEach(el=>el.onclick=()=>openEditor(state.tasks.find(t=>t.id===el.dataset.edit)));
   document.querySelectorAll("[data-add]").forEach(el=>el.onclick=()=>openEditor({}, el.dataset.add));
@@ -919,5 +1145,9 @@ function render() {
   document.querySelector("#nextWeek").onclick=()=>{state.weekStart=addDays(state.weekStart,7); save(state); render();};
   document.querySelector("#thisWeek").onclick=()=>{state.weekStart=currentWeekStart(); addCurrentPlan(state); save(state); render();};
 }
-renderDay();
+window.addEventListener('hashchange',()=>{
+  const view=location.hash.slice(1);
+  if(VIEWS.includes(view) && view!==currentView) {currentView=view;renderCurrentView();}
+});
+renderCurrentView();
 initializeCloudSync();
