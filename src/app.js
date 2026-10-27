@@ -6,7 +6,8 @@ import sepOctPlan from "./sep-oct-plan.json";
 import monthPlan from "./month-plan.json";
 import resumeSprint from "./sprint-01-resume-plan.json";
 import { cloudConfigured, getCloudSession, getCloudMeta, signIn, signUp, signOut, pullCloudSnapshot, pushCloudSnapshot } from "./sync.js";
-import { normalizeLifecycle, mergeLifecycle, mergeRecords, linkedTask, upsertEntity, validDay } from "./lifecycle.js";
+import { normalizeLifecycle, mergeLifecycle, mergeRecords, linkedTask, upsertEntity, validDay, canCarryTask } from "./lifecycle.js";
+import { usageGuideHtml } from "./usage-guide.js";
 import { renderLifecycle } from "./lifecycle-view.js";
 import { taskIdentity, stamp, mergeTasks } from "./task-merge.js";
 
@@ -260,13 +261,17 @@ function toggleTodayFocus(taskId, day = iso(new Date())) {
 }
 function carryTask(taskId, targetDay = iso(new Date())) {
   const source = state.tasks.find(t => t.id === taskId);
-  if (!source || source.done || source.date >= targetDay) return false;
+  if (!canCarryTask(source,targetDay,state.carryoverPolicy)) return false;
   const key = taskIdentity({...source, date:targetDay});
   if (state.tasks.some(t => taskIdentity(t) === key)) return false;
   state.tasks.push({...source, id:id(), date:targetDay, done:false,
     carriedFrom:source.id, carriedFromDate:source.date, updatedAt:new Date().toISOString()});
   save(state);
   return true;
+}
+function resetCarryoverFromTomorrow(today=iso(new Date())) {
+  state.carryoverPolicy={id:'carryover',fromDate:addDays(today,1),updatedAt:new Date().toISOString()};
+  save(state);
 }
 function applySnapshot(payload) {
   if (!payload) return;
@@ -373,6 +378,7 @@ function buildLinks(fd) {
   return {taskId,projectId:task?.projectId || projectId};
 }
 function bindNavigation() {
+  document.querySelector('.topbar')?.insertAdjacentHTML?.('afterend',usageGuideHtml(currentView));
   document.querySelectorAll("[data-nav]").forEach(el=>el.onclick=()=>{
     currentView = el.dataset.nav;
     if (typeof history !== 'undefined') history.replaceState(null,'',`#${currentView}`);
@@ -627,7 +633,7 @@ function renderDay() {
   const remainingMinutes = Math.max(0,300-totalMinutes);
   const attainment = Math.min(100,Math.round(totalMinutes/300*100));
   const review = (state.dailyReviews || {})[today] || {};
-  const overdue = state.tasks.filter(t => !t.done && t.date < today && !tasks.some(current => taskIdentity(current) === taskIdentity({...t,date:today})));
+  const overdue = state.tasks.filter(t => canCarryTask(t,today,state.carryoverPolicy) && !tasks.some(current => taskIdentity(current) === taskIdentity({...t,date:today})));
 
   document.querySelector("#app").innerHTML = `
     <main class="shell">
@@ -729,6 +735,8 @@ function renderDay() {
       <section class="day-panel">
         <h3>未完成任务结转</h3>
         <p>由你逐项选择，原日期记录会保留；结转不会生成投入时间。</p>
+        <p>${state.carryoverPolicy?.fromDate?`仅纳入 ${escapeHtml(state.carryoverPolicy.fromDate)} 起安排的任务；更早的历史任务保留在原日期。`:''}</p>
+        <button class="btn" id="resetCarryover">清空历史结转，从明天重新开始</button>
         ${overdue.length ? overdue.map(t=>`<div class="day-build-item"><div><strong>${escapeHtml(t.title)}</strong><small>${escapeHtml(t.date)} · ${escapeHtml(t.module || "")}</small></div><button class="btn" data-carry-task="${escapeHtml(t.id)}">安排到今天</button></div>`).join("") : '<p>没有待结转任务。</p>'}
       </section>
     </main>`;
@@ -762,6 +770,7 @@ function renderDay() {
       document.querySelector("#noteStatus").textContent="已保存 · 会随云同步备份";
   };
   document.querySelectorAll("[data-carry-task]").forEach(el=>el.onclick=()=>{carryTask(el.dataset.carryTask,today);renderDay();});
+  document.querySelector('#resetCarryover').onclick=()=>{resetCarryoverFromTomorrow(today);renderDay();};
   document.querySelector("#dailyReviewForm").onsubmit=e=>{
     e.preventDefault();
     const fd=new FormData(e.currentTarget);

@@ -238,6 +238,16 @@ h1 { margin:4px 0 0; font-size:28px; line-height:1.15; font-weight:680; }
 .agent-card li { font-size:13px; line-height:1.7; margin:6px 0; overflow-wrap:anywhere; }
 .agent-preview { margin-top:24px; border-left:3px solid #746d62; padding-left:16px; }
 .view-tabs { flex-wrap:wrap; }
+.usage-guide { margin:20px 0; padding:20px; border:1px solid #cfc5b6; border-radius:20px; background:#eee8dd; }
+.usage-guide-heading { display:flex; justify-content:space-between; align-items:start; gap:20px; }
+.usage-guide h2 { font-size:22px; margin:8px 0 12px; }.usage-guide p { font-size:12px; color:#71695e; line-height:1.7; margin:0; }
+.usage-guide-steps { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); list-style:none; padding:0; margin:16px 0; gap:10px; }
+.usage-guide-steps li { background:#fbf8f1; border:1px solid transparent; border-radius:12px; padding:12px; min-width:0; }.usage-guide-steps li.current { border-color:#8a7961; }
+.usage-guide-steps button { display:flex; align-items:center; gap:8px; padding:0; color:#292722; font-size:13px; font-weight:650; text-align:left; background:none; border:0; }
+.usage-guide-steps button span { border-radius:50%; background:#e9e2d6; width:24px; height:24px; display:grid; place-items:center; flex-shrink:0; }.usage-guide-steps p { margin-top:8px; }
+.usage-guide-extra { border-top:1px solid #d0c5b5; padding-top:12px; }
+@media(max-width:700px) { .usage-guide-heading { display:block; }.usage-guide-steps { grid-template-columns:repeat(2,minmax(0,1fr)); }.usage-guide { padding:14px; } }
+@media(max-width:380px) { .usage-guide-steps { grid-template-columns:1fr; } }
 .backup-text { margin-top:18px; }.backup-text label { display:block;margin:12px 0 6px; }.backup-text textarea { width:100%;min-height:140px;resize:vertical;border:1px solid #cfc5b6;border-radius:12px;padding:10px;background:#fffdf8;font-size:12px; }.backup-text button { margin:8px 0; }
 .cycle-intro { color:#746e64; line-height:1.8; padding:12px 0; }
 .cycle-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; margin:20px 0; }

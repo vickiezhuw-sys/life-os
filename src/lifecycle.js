@@ -41,7 +41,12 @@ export function normalizeLifecycle(planner = {}) {
 export function mergeLifecycle(cloud = {}, local = {}) {
   const next = {};
   for (const name of COLLECTIONS) next[name] = mergeRecords(cloud[name],local[name]);
+  const policies=[cloud.carryoverPolicy,local.carryoverPolicy].filter(p=>p && validDay(p.fromDate)).map(p=>({...p,id:'carryover'}));
+  if(policies.length) next.carryoverPolicy=mergeRecords(policies)[0];
   return next;
+}
+export function canCarryTask(task,day,policy) {
+  return Boolean(task && !task.done && validDay(task.date) && validDay(day) && task.date<day && (!validDay(policy?.fromDate) || task.date>=policy.fromDate));
 }
 function text(value, max=280) { return String(value || '').trim().slice(0,max); }
 function required(value, label) {
