@@ -237,18 +237,45 @@ function applySnapshot(payload) {
   localStorage.setItem(BUILD_KEY, JSON.stringify(buildItems));
   localStorage.setItem(AGENT_RESULT_KEY, JSON.stringify(agentResults));
 }
+// Always reconcile before upload: a direct write of a stale local snapshot
+// can erase newer cloud changes made on another device.
+let syncInFlight = null;
+let syncPending = false;
 function queueCloudSync() {
   if (!cloudConfigured || !getCloudSession()?.access_token) return;
+  syncPending = true;
   clearTimeout(syncTimer);
-  syncTimer = setTimeout(() => pushCloudSnapshot(snapshot()).catch(()=>{}), 700);
+  syncTimer = setTimeout(() => {
+    syncNow().catch(error => {
+      console.error("Life OS cloud sync failed; local data remains available", error);
+      if (currentView === "sync") renderSync();
+    });
+  }, 700);
 }
 async function syncNow() {
   if (!cloudConfigured || !getCloudSession()?.access_token) return false;
-  const row = await pullCloudSnapshot();
-  const merged = row?.payload ? mergeSnapshot(row.payload, snapshot()) : snapshot();
-  applySnapshot(merged);
-  await pushCloudSnapshot(merged);
-  return true;
+  if (syncInFlight) {
+    syncPending = true;
+    await syncInFlight;
+    if (!syncPending) return true;
+    // The active operation may have started before the latest local edit.
+    // The caller will run another reconciliation after it finishes.
+  }
+  syncPending = false;
+  const work = (async () => {
+    const row = await pullCloudSnapshot();
+    const merged = row?.payload ? mergeSnapshot(row.payload, snapshot()) : snapshot();
+    applySnapshot(merged);
+    const uploaded = await pushCloudSnapshot(merged);
+    if (!uploaded) throw new Error("Cloud session expired or upload was skipped");
+    return true;
+  })();
+  syncInFlight = work;
+  try { return await work; }
+  finally {
+    if (syncInFlight === work) syncInFlight = null;
+    if (syncPending) queueCloudSync();
+  }
 }
 async function initializeCloudSync() {
   cloudSyncReady = true;
@@ -814,7 +841,7 @@ function renderSync() {
           <div class="brand-kicker">SYNC STATUS</div>
           <h3>${statusText}</h3>
           <p>最近同步：${fmtSyncTime(meta.lastSyncedAt)}</p>
-          ${meta.error ? `<div class="sync-error">${escapeHtml(meta.error)}</div>` : ""}
+          ${meta.error ? `<div class="sync-error">同步失败：${escapeHtml(meta.error)}。本地记录仍在，可点击“立即同步”重试。</div>` : ""}
           ${!cloudConfigured ? `<div class="sync-callout">同步代码已经就绪，还需要 Supabase Project URL 与 anon public key 才能启用真正的跨设备云同步。</div>` : ""}
           ${cloudConfigured && !signedIn ? `
             <form id="syncLoginForm" class="sync-form">
