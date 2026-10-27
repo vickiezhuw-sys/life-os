@@ -238,6 +238,7 @@ h1 { margin:4px 0 0; font-size:28px; line-height:1.15; font-weight:680; }
 .agent-card li { font-size:13px; line-height:1.7; margin:6px 0; overflow-wrap:anywhere; }
 .agent-preview { margin-top:24px; border-left:3px solid #746d62; padding-left:16px; }
 .view-tabs { flex-wrap:wrap; }
+.backup-text { margin-top:18px; }.backup-text label { display:block;margin:12px 0 6px; }.backup-text textarea { width:100%;min-height:140px;resize:vertical;border:1px solid #cfc5b6;border-radius:12px;padding:10px;background:#fffdf8;font-size:12px; }.backup-text button { margin:8px 0; }
 .cycle-intro { color:#746e64; line-height:1.8; padding:12px 0; }
 .cycle-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; margin:20px 0; }
 .cycle-form,.cycle-card { border:1px solid #cec5b8; border-radius:20px; padding:20px; background:#fbf8f1; min-width:0; }

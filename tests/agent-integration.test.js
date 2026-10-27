@@ -24,7 +24,7 @@ function appHarness(overrides = {}, stores = {}) {
   for (const [name,path] of [['baseline','baseline-data.json'],['currentWeekPlan','current-week-data.json'],['sepOctPlan','sep-oct-plan.json'],['monthPlan','month-plan.json'],['resumeSprint','sprint-01-resume-plan.json']]) context[name]=JSON.parse(fs.readFileSync(new URL('../src/'+path,import.meta.url),'utf8'));
   const source = fs.readFileSync(new URL('../src/app.js',import.meta.url),'utf8').replace(/^import .*;\r?\n/gm,'');
   vm.createContext(context);
-  vm.runInContext(source + '\nglobalThis.api={snapshot,mergeSnapshot,applySnapshot,renderAgents,openEditor,syncNow,toggleTodayFocus,carryTask,renderDay};',context);
+  vm.runInContext(source + '\nglobalThis.api={snapshot,mergeSnapshot,applySnapshot,renderAgents,openEditor,syncNow,toggleTodayFocus,carryTask,renderDay,importBackupText};',context);
   return {context,element,values,api:context.api};
 }
 const sample=()=>({schema:'life-os-agent-result-v1',version:'1.0.0',task_id:'ui-import',fingerprint:'a'.repeat(64),objective:'<img src=x onerror=alert(1)>',module:'Career OS',status:'awaiting_acceptance',mode:'paid',summary:'<script>alert(1)</script>',next_actions:['检查来源'],calls_attempted:3,updated_at:'2026-10-13T03:00:00Z',accepted_by_user:false,duration_minutes:null});
@@ -240,4 +240,14 @@ test('two devices racing cloud writes retain both tasks and lifecycle entities a
   assert.ok(state.planner.tasks.every(t=>t.done===false));
  }
  assert.equal(remote.payload.planner.tasks.length,2);
+});
+test('text migration backs up destination and unions actual records without credentials',()=>{
+ const h=appHarness();const before=JSON.stringify(h.api.snapshot().planner);
+ h.api.importBackupText(JSON.stringify({version:1,planner:{tasks:[{id:'migrated-real',date:'2026-10-27',title:'实际任务',done:false}]},buildItems:[{id:'real-build',at:'2026-10-27T09:00',duration:17,content:'真实记录'}]}));
+ assert.equal(JSON.stringify(JSON.parse(h.values.get('life-os-before-import-backup')).planner),before);
+ assert.ok(h.api.snapshot().planner.tasks.some(t=>t.id==='migrated-real'));
+ assert.equal(h.api.snapshot().buildItems.find(b=>b.id==='real-build').duration,17);
+ const valid=JSON.stringify(h.api.snapshot().planner);
+ assert.throws(()=>h.api.importBackupText('{"planner":{}}'));
+ assert.equal(JSON.stringify(h.api.snapshot().planner),valid);
 });

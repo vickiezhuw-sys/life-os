@@ -958,6 +958,13 @@ function importBackup(file) {
   };
   reader.readAsText(file);
 }
+function importBackupText(raw) {
+  const incoming=JSON.parse(raw);
+  if (!incoming || (incoming.version !== undefined && incoming.version !== 1) || !Array.isArray(incoming.planner?.tasks) || (incoming.buildItems !== undefined && !Array.isArray(incoming.buildItems))) throw new Error('备份格式不兼容');
+  localStorage.setItem('life-os-before-import-backup',JSON.stringify(snapshot()));
+  applySnapshot(mergeSnapshot(incoming,snapshot()));
+  queueCloudSync();
+}
 function renderSync() {
   const session = getCloudSession();
   const meta = getCloudMeta();
@@ -994,6 +1001,7 @@ function renderSync() {
           <h3>手动备份保险</h3>
           <p>即使云端还没启用，也可以先把当前 Weekly 与 Build 历史导出成一个 JSON 文件。</p>
           <div class="sync-actions"><button class="btn primary" id="exportBackup">导出备份</button><button class="btn" id="exportUpgradeBackup" ${localStorage.getItem(PRE_V1_BACKUP_KEY)?'':'disabled'}>导出升级前备份</button><label class="btn import-label">导入备份<input id="importBackup" type="file" accept="application/json,.json" hidden /></label></div>
+          <details class="backup-text"><summary>文本备份与跨站迁移</summary><p>备份只包含任务和记录，不含登录凭据。导入会合并现有数据，并保留导入前快照。</p><button class="btn" id="showBackupText">读取当前备份</button><label for="backupJson">备份 JSON</label><textarea id="backupJson" aria-label="备份 JSON" spellcheck="false"></textarea><button class="btn" id="importBackupText">合并导入文本备份</button><p id="backupTextStatus" role="status"></p></details>
         </article>
       </section>
       <section class="sync-card sync-explain">
@@ -1004,6 +1012,11 @@ function renderSync() {
     </main>`;
   bindNavigation();
   document.querySelector("#exportBackup").onclick=downloadBackup;
+  document.querySelector('#showBackupText').onclick=()=>{document.querySelector('#backupJson').value=JSON.stringify(snapshot());document.querySelector('#backupTextStatus').textContent='已读取当前备份，可复制保存';};
+  document.querySelector('#importBackupText').onclick=()=>{
+    try {importBackupText(document.querySelector('#backupJson').value);document.querySelector('#backupTextStatus').textContent='已合并到当前设备；登录后可云同步';}
+    catch(error) {document.querySelector('#backupTextStatus').textContent=`导入失败：${error.message}`;}
+  };
   document.querySelector('#exportUpgradeBackup').onclick=()=>{
     const raw=localStorage.getItem(PRE_V1_BACKUP_KEY);if(!raw) return;
     const url=URL.createObjectURL(new Blob([raw],{type:'application/json'}));
